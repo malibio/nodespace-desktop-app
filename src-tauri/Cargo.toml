@@ -1,0 +1,39 @@
+[package]
+name = "nodespace-desktop-app"
+version = "0.1.0"
+description = "NodeSpace Desktop Application - Tauri shell for NodeSpace ecosystem"
+authors = ["NodeSpace Team"]
+license = "MIT"
+repository = "https://github.com/nodespace/nodespace-desktop-app"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.2.0", features = [] }
+
+[dependencies]
+# Core dependencies
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+fern = "0.7"
+
+# Tauri
+tauri = { version = "2.5.0", features = [] }
+tauri-plugin-log = "2.0.0-rc"
+
+# NodeSpace core services - temporarily commented out due to ML dependency conflicts
+# nodespace-core-types = { path = "../../nodespace-core-types" }
+# nodespace-core-logic = { path = "../../nodespace-core-logic" }
+# nodespace-data-store = { path = "../../nodespace-data-store" }
+# nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", default-features = false }

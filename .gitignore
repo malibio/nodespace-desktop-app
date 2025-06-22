@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# AI tool configurations
+CLAUDE.md
+.cursor-rules
+.aider*
+
 # Tauri
 src-tauri/target/
 src-tauri/gen/

@@ -1,3 +1,10 @@
+# ⚠️ BEFORE STARTING ANY WORK
+👉 **STEP 1**: Read development workflow: `../nodespace-system-design/docs/development-workflow.md`
+👉 **STEP 2**: Check Linear for assigned tasks
+👉 **STEP 3**: Repository-specific patterns below
+
+**This README.md only contains**: Repository-specific Tauri and desktop integration patterns
+
 # NodeSpace Desktop App
 
 **Tauri application shell and integration for NodeSpace**
@@ -26,20 +33,16 @@ This repository implements the Tauri desktop application that serves as the main
 - **`nodespace-core-ui`** - React frontend components
 - **Tauri framework** - Desktop application framework
 
-## 🏗️ Architecture Context
-
-Part of the [NodeSpace system architecture](https://github.com/malibio/nodespace-system-design):
-
-1. `nodespace-core-types` - Shared data structures and interfaces
-2. `nodespace-data-store` - Database and vector storage
-3. `nodespace-nlp-engine` - AI/ML processing and LLM integration
-4. `nodespace-workflow-engine` - Automation and event processing
-5. `nodespace-core-logic` - Business logic orchestration
-6. `nodespace-core-ui` - React components and UI
-7. **`nodespace-desktop-app`** ← **You are here**
-
 ## 🚀 Getting Started
 
+### **New to NodeSpace? Start Here:**
+1. **Read [NodeSpace System Design](../nodespace-system-design/README.md)** - Understand the full architecture
+2. **Check [Linear workspace](https://linear.app/nodespace)** - Find your current tasks (filter by `nodespace-desktop-app`)
+3. **Review [Development Workflow](../nodespace-system-design/docs/development-workflow.md)** - Process and procedures
+4. **Study [Key Contracts](../nodespace-system-design/contracts/)** - Interface definitions you'll implement
+5. **See [MVP User Flow](../nodespace-system-design/examples/mvp-user-flow.md)** - What you're building
+
+### **Development Setup:**
 ```bash
 # Install Tauri CLI
 cargo install tauri-cli
@@ -54,6 +57,18 @@ cargo tauri dev
 cargo tauri build
 ```
 
+## 🏗️ Architecture Context
+
+Part of the [NodeSpace system architecture](../nodespace-system-design/README.md):
+
+1. `nodespace-core-types` - Shared data structures and interfaces
+2. `nodespace-data-store` - Database and vector storage
+3. `nodespace-nlp-engine` - AI/ML processing and LLM integration
+4. `nodespace-workflow-engine` - Automation and event processing
+5. `nodespace-core-logic` - Business logic orchestration
+6. `nodespace-core-ui` - React components and UI
+7. **`nodespace-desktop-app`** ← **You are here**
+
 ## 🔄 MVP Implementation
 
 The desktop app implements the complete application:
@@ -66,29 +81,52 @@ The desktop app implements the complete application:
 
 ## 🧪 Testing
 
+### Backend Tests (Rust)
 ```bash
-# Run Rust backend tests
+# Run all Rust tests
 cargo test
 
-# Run frontend tests
-npm test
+# Run specific test module
+cargo test tests::
 
-# Integration tests
-cargo test --test integration
-
-# End-to-end tests
-npm run test:e2e
+# Run tests with output
+cargo test -- --nocapture
 ```
 
-## 📋 Development Status
+### Frontend Tests (TypeScript/React)
+```bash
+# Run all frontend tests
+npm test
 
-- [ ] Set up Tauri project structure
-- [ ] Implement all Tauri commands from core-types
-- [ ] Integrate core-logic service
-- [ ] Add frontend build integration
-- [ ] Implement error handling
-- [ ] Add comprehensive testing
+# Watch mode for development
+npm run test:watch
+
+# Test with UI
+npm run test:ui
+
+# Generate coverage report
+npm run test:coverage
+
+# Run only integration tests
+npm run test:integration
+```
+
+### Full Test Suite
+```bash
+# Run all tests (backend + frontend)
+npm run test:all
+
+# Individual test suites
+npm run test:backend  # Rust tests only
+npm test              # Frontend tests only
+```
+
+### Test Structure
+- **Rust Unit Tests**: `src-tauri/src/tests.rs`, `src-tauri/src/error.rs`
+- **Frontend Component Tests**: `src/App.test.tsx`, `src/utils/testing.test.ts`
+- **Integration Tests**: `src/integration/tauri-commands.test.ts`
+- **Test Utilities**: `src/utils/testing.ts`, `src/setupTests.ts`
 
 ---
 
-**Project Management:** All tasks tracked in [NodeSpace Project](https://github.com/users/malibio/projects/4)
+**Project Management:** All development tasks tracked in [Linear workspace](https://linear.app/nodespace)

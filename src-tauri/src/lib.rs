@@ -15,7 +15,8 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
 use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
-// NO core-logic, data-store or nlp-engine imports - demo service only
+use nodespace_core_logic::{DateNavigation, NavigationResult, DateNode};
+use chrono::NaiveDate;
 
 // Demo trait for clean architecture demonstration
 #[async_trait::async_trait]
@@ -26,6 +27,11 @@ trait DemoLegacyCoreLogic: Send + Sync {
     async fn search_nodes(&self, query: &str) -> NodeSpaceResult<Vec<Node>>;
     async fn process_rag_query(&self, query: &str) -> NodeSpaceResult<String>;
     async fn create_relationship(&self, from: &NodeId, to: &NodeId, rel_type: &str) -> NodeSpaceResult<()>;
+    
+    // Date navigation methods
+    async fn get_nodes_for_date(&self, date: NaiveDate) -> NodeSpaceResult<Vec<Node>>;
+    async fn navigate_to_date(&self, date: NaiveDate) -> NodeSpaceResult<NavigationResult>;
+    async fn create_or_get_date_node(&self, date: NaiveDate) -> NodeSpaceResult<DateNode>;
 }
 
 // Additional response types for Tauri commands
@@ -111,6 +117,45 @@ impl DemoLegacyCoreLogic for DemoNodeSpaceService {
     async fn create_relationship(&self, _from: &NodeId, _to: &NodeId, _rel_type: &str) -> NodeSpaceResult<()> {
         // Demo implementation
         Ok(())
+    }
+    
+    async fn get_nodes_for_date(&self, date: NaiveDate) -> NodeSpaceResult<Vec<Node>> {
+        // Demo implementation: return sample nodes for any date
+        let sample_content = format!("Sample journal entry for {}", date.format("%Y-%m-%d"));
+        let node_id = NodeId::new();
+        let node = Node {
+            id: node_id,
+            content: serde_json::Value::String(sample_content),
+            metadata: Some(serde_json::json!({
+                "date": date.format("%Y-%m-%d").to_string(),
+                "node_type": "text"
+            })),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+        };
+        Ok(vec![node])
+    }
+    
+    async fn navigate_to_date(&self, date: NaiveDate) -> NodeSpaceResult<NavigationResult> {
+        let nodes = self.get_nodes_for_date(date).await?;
+        Ok(NavigationResult {
+            date,
+            nodes,
+            has_previous: true,  // Demo: always show navigation
+            has_next: date < chrono::Utc::now().date_naive(),
+        })
+    }
+    
+    async fn create_or_get_date_node(&self, date: NaiveDate) -> NodeSpaceResult<DateNode> {
+        let node_id = NodeId::new();
+        let description = format!("{}", date.format("%A, %B %d, %Y"));
+        
+        Ok(DateNode {
+            id: node_id,
+            date,
+            description: Some(description),
+            child_count: 1, // Demo: always show one child
+        })
     }
 }
 
@@ -355,6 +400,95 @@ async fn semantic_search(
     Ok(results)
 }
 
+// Date navigation Tauri commands
+
+#[tauri::command]
+async fn get_nodes_for_date(
+    date_str: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<Node>, String> {
+    log_command("get_nodes_for_date", &format!("date: {}", date_str));
+    
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+    
+    // Get or initialize the service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+    
+    // Get nodes for the specified date
+    let nodes = service.get_nodes_for_date(date)
+        .await
+        .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
+    
+    log::info!("✅ Retrieved {} nodes for date {}", nodes.len(), date_str);
+    Ok(nodes)
+}
+
+#[tauri::command]
+async fn navigate_to_date(
+    date_str: String,
+    state: State<'_, AppState>,
+) -> Result<NavigationResult, String> {
+    log_command("navigate_to_date", &format!("date: {}", date_str));
+    
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+    
+    // Get or initialize the service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+    
+    // Navigate to the specified date
+    let result = service.navigate_to_date(date)
+        .await
+        .map_err(|e| format!("Failed to navigate to date: {}", e))?;
+    
+    log::info!("✅ Navigated to date {} with {} nodes", date_str, result.nodes.len());
+    Ok(result)
+}
+
+#[tauri::command]
+async fn create_or_get_date_node(
+    date_str: String,
+    state: State<'_, AppState>,
+) -> Result<DateNode, String> {
+    log_command("create_or_get_date_node", &format!("date: {}", date_str));
+    
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+    
+    // Get or initialize the service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+    
+    // Create or get the date node
+    let date_node = service.create_or_get_date_node(date)
+        .await
+        .map_err(|e| format!("Failed to create or get date node: {}", e))?;
+    
+    log::info!("✅ Created/retrieved date node for {} with {} children", date_str, date_node.child_count);
+    Ok(date_node)
+}
+
+#[tauri::command]
+async fn get_today_date() -> Result<String, String> {
+    let today = chrono::Utc::now().date_naive();
+    Ok(today.format("%Y-%m-%d").to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize custom logging first
@@ -389,7 +523,11 @@ pub fn run() {
             update_node,
             get_node,
             process_query,
-            semantic_search
+            semantic_search,
+            get_nodes_for_date,
+            navigate_to_date,
+            create_or_get_date_node,
+            get_today_date
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

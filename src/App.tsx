@@ -14,7 +14,7 @@ function App() {
   // Load today's content on app launch
   useEffect(() => {
     handleDateChange(new Date());
-  }, []);
+  }, [handleDateChange]);
 
   const handleDateChange = useCallback(async (date: Date) => {
     setSelectedDate(date);

@@ -4,7 +4,7 @@ import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
 import DatePicker from 'react-datepicker';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
@@ -115,16 +115,24 @@ function App() {
       
       console.log(`🔄 NS-39: Loading nodes for date: ${dateStr}`);
       const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
-        dateStr: dateStr 
+        date_str: dateStr 
       });
       
       console.log(`✅ NS-39: Loaded ${backendNodes.length} nodes from database`);
       const frontendNodes = convertToBaseNodes(backendNodes);
-      setNodes(frontendNodes);
+      
+      // Ensure there's always at least one node for editing
+      if (frontendNodes.length === 0) {
+        const defaultNode = new TextNode('Start writing here...');
+        setNodes([defaultNode]);
+      } else {
+        setNodes(frontendNodes);
+      }
     } catch (error) {
       console.error('Failed to load nodes for date:', error);
-      // Fallback to empty nodes on error
-      setNodes([]);
+      // Fallback to default node on error
+      const defaultNode = new TextNode('Start writing here...');
+      setNodes([defaultNode]);
     } finally {
       setLoading(false);
     }
@@ -209,6 +217,12 @@ function App() {
       <NodeSpaceEditor
         nodes={nodes}
         callbacks={callbacks}
+        focusedNodeId={focusedNodeId}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onRemoveNode={handleRemoveNode}
+        collapsedNodes={collapsedNodes}
+        onCollapseChange={handleCollapseChange}
       />
     </div>
   );

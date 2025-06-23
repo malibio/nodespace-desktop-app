@@ -17,8 +17,8 @@ impl TestUtils {
 
         Node {
             id: node_id,
-            content: content.to_string(),
-            metadata,
+            content: serde_json::Value::String(content.to_string()),
+            metadata: Some(serde_json::Value::Object(metadata.into_iter().collect())),
             created_at: now.clone(),
             updated_at: now,
         }
@@ -71,9 +71,19 @@ impl TestUtils {
     pub fn create_search_results(nodes: Vec<Node>, query: &str) -> Vec<SearchResult> {
         nodes
             .into_iter()
-            .filter(|node| node.content.to_lowercase().contains(&query.to_lowercase()))
+            .filter(|node| {
+                if let serde_json::Value::String(content) = &node.content {
+                    content.to_lowercase().contains(&query.to_lowercase())
+                } else {
+                    false
+                }
+            })
             .map(|node| SearchResult {
-                snippet: node.content.chars().take(100).collect::<String>() + "...",
+                snippet: if let serde_json::Value::String(content) = &node.content {
+                    content.chars().take(100).collect::<String>() + "..."
+                } else {
+                    "...".to_string()
+                },
                 score: 0.8,
                 node,
             })
@@ -90,12 +100,20 @@ mod tests {
         let content = "Test content";
         let node = TestUtils::create_test_node(content);
 
-        assert_eq!(node.content, content);
+        if let serde_json::Value::String(node_content) = &node.content {
+            assert_eq!(node_content, content);
+        } else {
+            panic!("Expected content to be a string");
+        }
         assert!(!node.id.0.is_empty());
         assert!(!node.created_at.is_empty());
         assert!(!node.updated_at.is_empty());
         assert_eq!(node.created_at, node.updated_at);
-        assert!(node.metadata.contains_key("type"));
+        if let Some(serde_json::Value::Object(metadata)) = &node.metadata {
+            assert!(metadata.contains_key("type"));
+        } else {
+            panic!("Expected metadata to be an object");
+        }
     }
 
     #[test]
@@ -173,7 +191,11 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         for result in results {
-            assert!(result.node.content.to_lowercase().contains("search"));
+            if let serde_json::Value::String(content) = &result.node.content {
+                assert!(content.to_lowercase().contains("search"));
+            } else {
+                panic!("Expected content to be a string");
+            }
             assert_eq!(result.score, 0.8);
             assert!(!result.snippet.is_empty());
         }

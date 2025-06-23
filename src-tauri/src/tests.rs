@@ -10,7 +10,10 @@ impl TestUtils {
         let node_id = NodeId(uuid::Uuid::new_v4().to_string());
         let now = chrono::Utc::now().to_rfc3339();
         let mut metadata = HashMap::new();
-        metadata.insert("type".to_string(), serde_json::Value::String("test".to_string()));
+        metadata.insert(
+            "type".to_string(),
+            serde_json::Value::String("test".to_string()),
+        );
 
         Node {
             id: node_id,
@@ -23,28 +26,36 @@ impl TestUtils {
 
     pub fn validate_node_content(content: &str) -> Result<(), AppError> {
         if content.trim().is_empty() {
-            return Err(AppError::InvalidInput("Content cannot be empty".to_string()));
+            return Err(AppError::InvalidInput(
+                "Content cannot be empty".to_string(),
+            ));
         }
         Ok(())
     }
 
     pub fn validate_search_query(query: &str) -> Result<(), AppError> {
         if query.trim().is_empty() {
-            return Err(AppError::InvalidInput("Search query cannot be empty".to_string()));
+            return Err(AppError::InvalidInput(
+                "Search query cannot be empty".to_string(),
+            ));
         }
         Ok(())
     }
 
     pub fn validate_search_limit(limit: usize) -> Result<(), AppError> {
         if limit == 0 || limit > 100 {
-            return Err(AppError::InvalidInput("Limit must be between 1 and 100".to_string()));
+            return Err(AppError::InvalidInput(
+                "Limit must be between 1 and 100".to_string(),
+            ));
         }
         Ok(())
     }
 
     pub fn validate_question(question: &str) -> Result<(), AppError> {
         if question.trim().is_empty() {
-            return Err(AppError::InvalidInput("Question cannot be empty".to_string()));
+            return Err(AppError::InvalidInput(
+                "Question cannot be empty".to_string(),
+            ));
         }
         Ok(())
     }
@@ -78,7 +89,7 @@ mod tests {
     fn test_create_test_node() {
         let content = "Test content";
         let node = TestUtils::create_test_node(content);
-        
+
         assert_eq!(node.content, content);
         assert!(!node.id.0.is_empty());
         assert!(!node.created_at.is_empty());
@@ -144,7 +155,7 @@ mod tests {
     fn test_create_mock_query_response() {
         let question = "What is NodeSpace?";
         let response = TestUtils::create_mock_query_response(question);
-        
+
         assert!(response.answer.contains(question));
         assert_eq!(response.confidence, 0.5);
         assert!(response.sources.is_empty());
@@ -157,9 +168,9 @@ mod tests {
             TestUtils::create_test_node("This does not contain the term"),
             TestUtils::create_test_node("Another search term example"),
         ];
-        
+
         let results = TestUtils::create_search_results(nodes, "search");
-        
+
         assert_eq!(results.len(), 2);
         for result in results {
             assert!(result.node.content.to_lowercase().contains("search"));
@@ -174,7 +185,7 @@ mod tests {
             TestUtils::create_test_node("This is content"),
             TestUtils::create_test_node("Another piece of content"),
         ];
-        
+
         let results = TestUtils::create_search_results(nodes, "nonexistent");
         assert!(results.is_empty());
     }
@@ -184,7 +195,7 @@ mod tests {
         let node = TestUtils::create_test_node("Test content");
         let serialized = serde_json::to_string(&node).unwrap();
         let deserialized: Node = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(node.id.0, deserialized.id.0);
         assert_eq!(node.content, deserialized.content);
         assert_eq!(node.created_at, deserialized.created_at);
@@ -196,7 +207,7 @@ mod tests {
         let response = TestUtils::create_mock_query_response("test question");
         let serialized = serde_json::to_string(&response).unwrap();
         let deserialized: QueryResponse = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(response.answer, deserialized.answer);
         assert_eq!(response.confidence, deserialized.confidence);
         assert_eq!(response.sources.len(), deserialized.sources.len());
@@ -210,10 +221,10 @@ mod tests {
             score: 0.9,
             snippet: "Test snippet".to_string(),
         };
-        
+
         let serialized = serde_json::to_string(&search_result).unwrap();
         let deserialized: SearchResult = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(search_result.node.id.0, deserialized.node.id.0);
         assert_eq!(search_result.score, deserialized.score);
         assert_eq!(search_result.snippet, deserialized.snippet);

@@ -148,7 +148,10 @@ async fn initialize_nodespace_service() -> Result<Box<dyn DemoLegacyCoreLogic + 
 // Tauri commands for MVP functionality
 #[tauri::command]
 async fn greet(name: String) -> Result<String, String> {
-    Ok(format!("Hello, {}! Welcome to NodeSpace with real AI integration.", name))
+    Ok(format!(
+        "Hello, {}! Welcome to NodeSpace with real AI integration.",
+        name
+    ))
 }
 
 #[tauri::command]
@@ -157,19 +160,22 @@ async fn create_knowledge_node(
     metadata: HashMap<String, serde_json::Value>,
     state: State<'_, AppState>,
 ) -> Result<NodeId, String> {
-    log_command("create_knowledge_node", &format!("content_len: {}", content.len()));
-    
+    log_command(
+        "create_knowledge_node",
+        &format!("content_len: {}", content.len()),
+    );
+
     if content.trim().is_empty() {
         return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
     }
-    
+
     // Get or initialize the real NodeSpace service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // Convert metadata to serde_json::Value
     let metadata_json = serde_json::Value::Object(
         metadata.into_iter().collect()
@@ -191,12 +197,15 @@ async fn update_node(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node", &format!("node_id: {}, content_len: {}", node_id, content.len()));
-    
+    log_command(
+        "update_node",
+        &format!("node_id: {}, content_len: {}", node_id, content.len()),
+    );
+
     if content.trim().is_empty() {
         return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
     }
-    
+
     // Get or initialize the real NodeSpace service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
@@ -217,31 +226,32 @@ async fn update_node(
 }
 
 #[tauri::command]
-async fn get_node(
-    node_id: String,
-    state: State<'_, AppState>,
-) -> Result<Option<Node>, String> {
+async fn get_node(node_id: String, state: State<'_, AppState>) -> Result<Option<Node>, String> {
     log_command("get_node", &format!("node_id: {}", node_id));
-    
+
     // Get or initialize the real NodeSpace service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // Use real NodeSpace service
     let node_id_obj = NodeId::from_string(node_id.clone());
-    let result = service.get_node(&node_id_obj)
+    let result = service
+        .get_node(&node_id_obj)
         .await
         .map_err(|e| format!("Failed to get node: {}", e))?;
-    
+
     if result.is_some() {
-        log::info!("✅ NS-29: Retrieved node {} with real NodeSpace integration", node_id);
+        log::info!(
+            "✅ NS-29: Retrieved node {} with real NodeSpace integration",
+            node_id
+        );
     } else {
         log::warn!("Node not found: {} (real NodeSpace integration)", node_id);
     }
-    
+
     Ok(result)
 }
 
@@ -251,20 +261,20 @@ async fn process_query(
     state: State<'_, AppState>,
 ) -> Result<QueryResponse, String> {
     log_command("process_query", &format!("question: {}", question));
-    
+
     if question.trim().is_empty() {
         return Err(AppError::InvalidInput("Question cannot be empty".to_string()).into());
     }
-    
+
     // Get or initialize the real NodeSpace service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     log::info!("🚀 NS-29: Processing RAG query with REAL AI: {}", question);
-    
+
     // Use real NodeSpace service for RAG query processing
     let answer = service.process_rag_query(&question)
         .await
@@ -279,7 +289,7 @@ async fn process_query(
         sources: source_nodes,
         confidence: 0.85, // Demo confidence score
     };
-    
+
     log::info!("✅ NS-29: RAG query processed with REAL local AI (zero ML deps in desktop app)");
     Ok(response)
 }
@@ -290,16 +300,19 @@ async fn semantic_search(
     limit: usize,
     state: State<'_, AppState>,
 ) -> Result<Vec<SearchResult>, String> {
-    log_command("semantic_search", &format!("query: {}, limit: {}", query, limit));
-    
+    log_command(
+        "semantic_search",
+        &format!("query: {}, limit: {}", query, limit),
+    );
+
     if query.trim().is_empty() {
         return Err(AppError::InvalidInput("Search query cannot be empty".to_string()).into());
     }
-    
+
     if limit == 0 || limit > 100 {
         return Err(AppError::InvalidInput("Limit must be between 1 and 100".to_string()).into());
     }
-    
+
     // Get or initialize the real NodeSpace service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
@@ -326,7 +339,7 @@ async fn semantic_search(
             } else {
                 "...".to_string()
             };
-            
+
             SearchResult {
                 node,
                 score: 1.0 - (i as f64 * 0.1), // Demo decreasing scores
@@ -334,8 +347,11 @@ async fn semantic_search(
             }
         })
         .collect();
-    
-    log::info!("✅ NS-29: Semantic search completed with REAL AI embeddings, found {} results", results.len());
+
+    log::info!(
+        "✅ NS-29: Semantic search completed with REAL AI embeddings, found {} results",
+        results.len()
+    );
     Ok(results)
 }
 
@@ -345,17 +361,17 @@ pub fn run() {
     if let Err(e) = init_logging() {
         eprintln!("Failed to initialize logging: {}", e);
     }
-    
+
     log_startup();
-    
+
     tauri::Builder::default()
         .manage(AppState::default())
         .setup(|_app| {
             // Skip Tauri plugin logging since we already initialized fern logging
-            
+
             log_service_init("Application State");
             log_service_ready("Application State");
-            
+
             log::info!("🎉 NS-29 SUCCESS: NodeSpace Desktop with REAL AI integration initialized");
             log::info!("   ✅ Clean dependency boundary: Desktop → Core Logic → NLP Engine");
             log::info!("   ✅ Zero ML dependencies in desktop app");
@@ -363,11 +379,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|_window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { .. } => {
-                    log_shutdown();
-                }
-                _ => {}
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                log_shutdown();
             }
         })
         .invoke_handler(tauri::generate_handler![

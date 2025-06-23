@@ -28,7 +28,7 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
         .chain(
             fern::Dispatch::new()
                 .level(log::LevelFilter::Warn)
-                .chain(fern::log_file(logs_dir.join("nodespace.log"))?)
+                .chain(fern::log_file(logs_dir.join("nodespace.log"))?),
         )
         .apply()?;
 
@@ -40,7 +40,14 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
 pub fn log_startup() {
     info!("NodeSpace Desktop Application starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
-    info!("Build mode: {}", if cfg!(debug_assertions) { "debug" } else { "release" });
+    info!(
+        "Build mode: {}",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
+    );
 }
 
 /// Log service initialization
@@ -54,13 +61,20 @@ pub fn log_service_ready(service_name: &str) {
 }
 
 /// Log service initialization failure
+#[allow(dead_code)]
 pub fn log_service_error(service_name: &str, error: &str) {
-    error!("Service initialization failed [{}]: {}", service_name, error);
+    error!(
+        "Service initialization failed [{}]: {}",
+        service_name, error
+    );
 }
 
 /// Log Tauri command execution
 pub fn log_command(command_name: &str, params: &str) {
-    info!("Executing command: {} with params: {}", command_name, params);
+    info!(
+        "Executing command: {} with params: {}",
+        command_name, params
+    );
 }
 
 /// Log application shutdown
@@ -69,11 +83,13 @@ pub fn log_shutdown() {
 }
 
 /// Log errors with context
+#[allow(dead_code)]
 pub fn log_error_with_context(context: &str, error: &str) {
     error!("Error in {}: {}", context, error);
 }
 
 /// Log warnings with context
+#[allow(dead_code)]
 pub fn log_warning_with_context(context: &str, warning: &str) {
     warn!("Warning in {}: {}", context, warning);
 }

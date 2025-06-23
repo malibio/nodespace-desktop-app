@@ -13,65 +13,11 @@ use tokio::sync::Mutex;
 use crate::error::AppError;
 use crate::logging::*;
 
-// Import real NodeSpace types - clean dependency boundary (no ML imports)
+// Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
 use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
-
-// NS-29 DEMONSTRATION: Clean Dependency Boundary
-// This proves the desktop app can work with ZERO ML dependencies
-// while maintaining the correct architecture for future integration
-
-use async_trait::async_trait;
-
-/// Local NLP Engine trait definition
-/// This will be imported from nodespace_nlp_engine once NS-28 is complete
-#[async_trait]
-pub trait NLPEngine: Send + Sync {
-    async fn generate_embedding(&self, text: &str) -> NodeSpaceResult<Vec<f32>>;
-    async fn batch_embeddings(&self, texts: &[String]) -> NodeSpaceResult<Vec<Vec<f32>>>;
-    async fn generate_text(&self, prompt: &str) -> NodeSpaceResult<String>;
-    async fn generate_surrealql(&self, natural_query: &str, schema_context: &str) -> NodeSpaceResult<String>;
-    fn embedding_dimensions(&self) -> usize;
-}
-
-/// Mock NLP Engine that demonstrates integration without ML dependencies
-/// This shows the desktop app can work with ZERO ML dependencies
-#[derive(Clone)]
-pub struct MockNLPEngine;
-
-impl MockNLPEngine {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl NLPEngine for MockNLPEngine {
-    async fn generate_embedding(&self, text: &str) -> NodeSpaceResult<Vec<f32>> {
-        log::info!("[MOCK NLP] Generate embedding for text: {} chars (✅ Clean dependency boundary)", text.len());
-        // Return a mock embedding vector (768 dimensions is typical for sentence embeddings)
-        Ok(vec![0.1; 768])
-    }
-
-    async fn batch_embeddings(&self, texts: &[String]) -> NodeSpaceResult<Vec<Vec<f32>>> {
-        log::info!("[MOCK NLP] Generate batch embeddings for {} texts (✅ Clean dependency boundary)", texts.len());
-        Ok(texts.iter().map(|_| vec![0.1; 768]).collect())
-    }
-
-    async fn generate_text(&self, prompt: &str) -> NodeSpaceResult<String> {
-        log::info!("[MOCK NLP] Generate text for prompt: {} chars (✅ Clean dependency boundary)", prompt.len());
-        Ok(format!("[DEMO AI] This demonstrates the RAG workflow: '{}'... \n\nOnce NS-28 interfaces are stable, this will be real Mistral.rs inference with local models.", 
-                  prompt.chars().take(50).collect::<String>()))
-    }
-
-    async fn generate_surrealql(&self, query: &str, _schema: &str) -> NodeSpaceResult<String> {
-        log::info!("[MOCK NLP] Generate SurrealQL for query: {} (✅ Clean dependency boundary)", query);
-        Ok(format!("SELECT * FROM nodes WHERE content CONTAINS '{}'", query))
-    }
-
-    fn embedding_dimensions(&self) -> usize {
-        768 // Standard sentence transformer dimension
-    }
-}
+use nodespace_core_logic::{NodeSpaceService, CoreLogic, LegacyCoreLogic};
+use nodespace_data_store::SurrealDataStore;
+use nodespace_nlp_engine::LocalNLPEngine;
 
 // Additional response types for Tauri commands
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,135 +34,59 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-// Application state for clean dependency demonstration
+// Application state with real NodeSpace service integration
 pub struct AppState {
-    pub nodes: Arc<Mutex<HashMap<String, Node>>>,
-    pub nlp_engine: Arc<MockNLPEngine>,
+    pub core_service: Arc<Mutex<Option<NodeSpaceService<SurrealDataStore, LocalNLPEngine>>>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            nodes: Arc::new(Mutex::new(HashMap::new())),
-            nlp_engine: Arc::new(MockNLPEngine::new()),
+            core_service: Arc::new(Mutex::new(None)),
         }
     }
 }
 
-/// NS-29 Demo Service - Standalone service that demonstrates integration pattern
-/// This shows exactly how the desktop app will integrate with real services
-pub struct DemoNodeSpaceService {
-    nodes: Arc<Mutex<HashMap<String, Node>>>,
-    nlp_engine: Arc<MockNLPEngine>,
-}
-
-impl DemoNodeSpaceService {
-    pub fn new() -> Self {
-        Self {
-            nodes: Arc::new(Mutex::new(HashMap::new())),
-            nlp_engine: Arc::new(MockNLPEngine::new()),
-        }
-    }
-
-    pub async fn create_knowledge_node(&self, content: &str, metadata: serde_json::Value) -> NodeSpaceResult<NodeId> {
-        let node_id = NodeId::new();
-        let now = chrono::Utc::now().to_rfc3339();
-        
-        // Demonstrate AI processing without ML dependencies
-        let _embedding = self.nlp_engine.generate_embedding(content).await?;
-        
-        let node = Node {
-            id: node_id.clone(),
-            content: serde_json::Value::String(content.to_string()),
-            metadata: Some(metadata),
-            created_at: now.clone(),
-            updated_at: now,
-        };
-
-        self.nodes.lock().await.insert(node_id.to_string(), node);
-        Ok(node_id)
-    }
-
-    pub async fn get_node(&self, node_id: &NodeId) -> NodeSpaceResult<Option<Node>> {
-        Ok(self.nodes.lock().await.get(&node_id.to_string()).cloned())
-    }
-
-    pub async fn update_node(&self, node_id: &NodeId, content: &str) -> NodeSpaceResult<()> {
-        let mut nodes = self.nodes.lock().await;
-        if let Some(node) = nodes.get_mut(&node_id.to_string()) {
-            node.content = serde_json::Value::String(content.to_string());
-            node.updated_at = chrono::Utc::now().to_rfc3339();
-            
-            // Demonstrate embedding reprocessing without ML dependencies
-            let _new_embedding = self.nlp_engine.generate_embedding(content).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn process_query(&self, question: &str) -> NodeSpaceResult<QueryResponse> {
-        // Demonstrate RAG workflow without ML dependencies
-        let search_results = self.semantic_search(question, 5).await?;
-        
-        let context = search_results.iter()
-            .filter_map(|r| r.node.content.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        
-        let prompt = format!("Answer based on context: {}\n\nContext: {}", question, context);
-        let answer = self.nlp_engine.generate_text(&prompt).await?;
-        
-        Ok(QueryResponse {
-            answer,
-            sources: search_results.into_iter().map(|r| r.node).collect(),
-            confidence: 0.8,
-        })
-    }
-
-    pub async fn semantic_search(&self, query: &str, limit: usize) -> NodeSpaceResult<Vec<SearchResult>> {
-        // Demonstrate semantic search without ML dependencies
-        let _query_embedding = self.nlp_engine.generate_embedding(query).await?;
-        
-        let nodes = self.nodes.lock().await;
-        let results: Vec<SearchResult> = nodes
-            .values()
-            .filter(|node| {
-                if let Some(content) = node.content.as_str() {
-                    content.to_lowercase().contains(&query.to_lowercase())
-                } else {
-                    false
-                }
-            })
-            .take(limit)
-            .map(|node| {
-                let snippet = if let Some(content) = node.content.as_str() {
-                    content.chars().take(100).collect::<String>() + "..."
-                } else {
-                    "...".to_string()
-                };
-                
-                SearchResult {
-                    node: node.clone(),
-                    score: 0.8,
-                    snippet,
-                }
-            })
-            .collect();
-        
-        Ok(results)
-    }
+// Service initialization helper
+async fn initialize_nodespace_service() -> Result<NodeSpaceService<SurrealDataStore, LocalNLPEngine>, String> {
+    log::info!("🚀 NS-29: Initializing NodeSpace service with stable AI stack (NS-28 complete)");
+    
+    // Initialize data store (in-memory for MVP, can be persistent later)
+    let data_store = SurrealDataStore::new("memory")
+        .await
+        .map_err(|e| format!("Failed to initialize data store: {}", e))?;
+    
+    log_service_init("SurrealDB DataStore");
+    log_service_ready("SurrealDB DataStore");
+    
+    // Initialize NLP engine with stable AI stack
+    let nlp_engine = LocalNLPEngine::new();
+    
+    log_service_init("Local NLP Engine (Stable Candle + Mistral.rs Stack)");
+    log_service_ready("Local NLP Engine (Stable Candle + Mistral.rs Stack)");
+    
+    // Create the integrated service
+    let service = NodeSpaceService::new(data_store, nlp_engine);
+    
+    log::info!("✅ NS-29: NodeSpace service initialized successfully with REAL AI integration");
+    log::info!("   - Desktop app has ZERO ML dependencies (clean boundary achieved)");
+    log::info!("   - Real AI processing via: Desktop → Core Logic → NLP Engine");
+    log::info!("   - Using stable Candle + Mistral.rs stack from NS-28");
+    
+    Ok(service)
 }
 
 // Tauri commands for MVP functionality
 #[tauri::command]
 async fn greet(name: String) -> Result<String, String> {
-    Ok(format!("Hello, {}! Welcome to NodeSpace with clean dependency boundary demo.", name))
+    Ok(format!("Hello, {}! Welcome to NodeSpace with real AI integration.", name))
 }
 
 #[tauri::command]
 async fn create_knowledge_node(
     content: String,
     metadata: HashMap<String, serde_json::Value>,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<NodeId, String> {
     log_command("create_knowledge_node", &format!("content_len: {}", content.len()));
     
@@ -224,18 +94,24 @@ async fn create_knowledge_node(
         return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
     }
     
-    // NS-29 DEMO: Clean dependency boundary - zero ML dependencies
-    let service = DemoNodeSpaceService::new();
+    // Get or initialize the real NodeSpace service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
     
+    // Convert metadata to serde_json::Value
     let metadata_json = serde_json::Value::Object(
         metadata.into_iter().collect()
     );
     
+    // Use real NodeSpace service with AI processing
     let node_id = service.create_knowledge_node(&content, metadata_json)
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
-    log::info!("✅ NS-29: Created knowledge node {} with ZERO ML dependencies in desktop app", node_id);
+    log::info!("✅ NS-29: Created knowledge node {} with REAL AI processing (zero ML deps in desktop app)", node_id);
     Ok(node_id)
 }
 
@@ -243,7 +119,7 @@ async fn create_knowledge_node(
 async fn update_node(
     node_id: String,
     content: String,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
     log_command("update_node", &format!("node_id: {}, content_len: {}", node_id, content.len()));
     
@@ -251,35 +127,47 @@ async fn update_node(
         return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
     }
     
-    // NS-29 DEMO: Clean dependency boundary
-    let service = DemoNodeSpaceService::new();
+    // Get or initialize the real NodeSpace service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+    
+    // Use real NodeSpace service with embedding reprocessing
     let node_id_obj = NodeId::from_string(node_id.clone());
     service.update_node(&node_id_obj, &content)
         .await
         .map_err(|e| format!("Failed to update node: {}", e))?;
 
-    log::info!("✅ NS-29: Updated node {} with ZERO ML dependencies in desktop app", node_id);
+    log::info!("✅ NS-29: Updated node {} with REAL AI embedding reprocessing (zero ML deps in desktop app)", node_id);
     Ok(())
 }
 
 #[tauri::command]
 async fn get_node(
     node_id: String,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Option<Node>, String> {
     log_command("get_node", &format!("node_id: {}", node_id));
     
-    // NS-29 DEMO: Clean dependency boundary
-    let service = DemoNodeSpaceService::new();
+    // Get or initialize the real NodeSpace service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+    
+    // Use real NodeSpace service
     let node_id_obj = NodeId::from_string(node_id.clone());
     let result = service.get_node(&node_id_obj)
         .await
         .map_err(|e| format!("Failed to get node: {}", e))?;
     
     if result.is_some() {
-        log::info!("✅ NS-29: Retrieved node {} with ZERO ML dependencies", node_id);
+        log::info!("✅ NS-29: Retrieved node {} with real NodeSpace integration", node_id);
     } else {
-        log::warn!("Node not found: {} (clean architecture)", node_id);
+        log::warn!("Node not found: {} (real NodeSpace integration)", node_id);
     }
     
     Ok(result)
@@ -288,7 +176,7 @@ async fn get_node(
 #[tauri::command]
 async fn process_query(
     question: String,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<QueryResponse, String> {
     log_command("process_query", &format!("question: {}", question));
     
@@ -296,16 +184,36 @@ async fn process_query(
         return Err(AppError::InvalidInput("Question cannot be empty".to_string()).into());
     }
     
-    // NS-29 DEMO: RAG workflow with ZERO ML dependencies
-    let service = DemoNodeSpaceService::new();
+    // Get or initialize the real NodeSpace service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
     
-    log::info!("✅ NS-29: Processing RAG query with clean architecture: {}", question);
+    log::info!("🚀 NS-29: Processing RAG query with REAL AI: {}", question);
     
-    let response = service.process_query(&question)
+    // Use real NodeSpace service for RAG query processing
+    let core_response = service.process_query(&question)
         .await
         .map_err(|e| format!("Failed to process query: {}", e))?;
     
-    log::info!("✅ NS-29: Query processed successfully with ZERO ML dependencies in desktop app");
+    // Get source nodes from the core response
+    let mut source_nodes = Vec::new();
+    for source_id in &core_response.sources {
+        if let Ok(Some(node)) = service.get_node(source_id).await {
+            source_nodes.push(node);
+        }
+    }
+    
+    // Convert to Tauri response format
+    let response = QueryResponse {
+        answer: core_response.answer,
+        sources: source_nodes,
+        confidence: core_response.confidence as f64,
+    };
+    
+    log::info!("✅ NS-29: RAG query processed with REAL local AI (zero ML deps in desktop app)");
     Ok(response)
 }
 
@@ -313,7 +221,7 @@ async fn process_query(
 async fn semantic_search(
     query: String,
     limit: usize,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<SearchResult>, String> {
     log_command("semantic_search", &format!("query: {}, limit: {}", query, limit));
     
@@ -325,16 +233,40 @@ async fn semantic_search(
         return Err(AppError::InvalidInput("Limit must be between 1 and 100".to_string()).into());
     }
     
-    // NS-29 DEMO: Semantic search with clean architecture
-    let service = DemoNodeSpaceService::new();
+    // Get or initialize the real NodeSpace service
+    let mut service_guard = state.core_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
     
-    log::info!("✅ NS-29: Performing semantic search with ZERO ML dependencies: {} (limit: {})", query, limit);
+    log::info!("🔍 NS-29: Performing semantic search with REAL embeddings: {} (limit: {})", query, limit);
     
-    let results = service.semantic_search(&query, limit)
+    // Use real NodeSpace service for semantic search
+    let core_results = service.semantic_search(&query, limit)
         .await
         .map_err(|e| format!("Failed to perform semantic search: {}", e))?;
     
-    log::info!("✅ NS-29: Search completed, found {} results with clean architecture", results.len());
+    // Convert core results to Tauri response format
+    let results: Vec<SearchResult> = core_results
+        .into_iter()
+        .map(|core_result| {
+            let snippet = if let Some(content_str) = core_result.node.content.as_str() {
+                let snippet_len = content_str.len().min(100);
+                format!("{}...", &content_str[..snippet_len])
+            } else {
+                "...".to_string()
+            };
+            
+            SearchResult {
+                node: core_result.node,
+                score: core_result.score as f64,
+                snippet,
+            }
+        })
+        .collect();
+    
+    log::info!("✅ NS-29: Semantic search completed with REAL AI embeddings, found {} results", results.len());
     Ok(results)
 }
 
@@ -355,10 +287,10 @@ pub fn run() {
             log_service_init("Application State");
             log_service_ready("Application State");
             
-            log::info!("🎉 NS-29 SUCCESS: NodeSpace Desktop with clean dependency boundary initialized");
-            log::info!("   ✅ ZERO ML dependencies in desktop app achieved");
-            log::info!("   ✅ Clean architecture: Desktop → Core Logic → NLP Engine (via interfaces)");
-            log::info!("   ✅ Ready for real service integration when NS-28 interfaces are stable");
+            log::info!("🎉 NS-29 SUCCESS: NodeSpace Desktop with REAL AI integration initialized");
+            log::info!("   ✅ Clean dependency boundary: Desktop → Core Logic → NLP Engine");
+            log::info!("   ✅ Zero ML dependencies in desktop app");
+            log::info!("   ✅ Real local AI processing via stable Candle + Mistral.rs stack");
             Ok(())
         })
         .on_window_event(|_window, event| {

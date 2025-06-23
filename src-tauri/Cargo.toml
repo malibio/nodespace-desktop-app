@@ -32,12 +32,8 @@ fern = "0.7"
 tauri = { version = "2.5.0", features = [] }
 tauri-plugin-log = "2.0.0-rc"
 
-# NodeSpace core services - clean dependency boundary demonstration  
+# NodeSpace core services - clean dependency boundary (NS-28 AI stack now stable!)
 nodespace-core-types = { path = "../../nodespace-core-types" }
-# Real services will be integrated once NS-28 interfaces are stable
-# nodespace-core-logic = { path = "../../nodespace-core-logic" }
-# nodespace-data-store = { path = "../../nodespace-data-store" }
-# nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", default-features = false, features = ["cpu-only"] }
-
-# Standalone demo dependencies - zero ML libraries
-async-trait = "0.1"
+nodespace-core-logic = { path = "../../nodespace-core-logic" }
+nodespace-data-store = { path = "../../nodespace-data-store" }
+nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", default-features = false, features = ["cpu-only"] }

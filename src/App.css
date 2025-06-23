@@ -1,7 +1,45 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
+.editor-header {
+  padding: 1rem 2rem;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
 }
 
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafb);
+.editor-header h1 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.editor-header p {
+  margin: 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.editor-container {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+.journal-editor {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  .editor-header {
+    background: #1a1a1a;
+    border-bottom-color: #3a3a3a;
+  }
+  
+  .editor-header h1 {
+    color: #e5e5e5;
+  }
+  
+  .editor-header p {
+    color: #999;
+  }
 }

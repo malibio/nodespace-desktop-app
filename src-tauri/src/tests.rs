@@ -1,24 +1,22 @@
 use crate::error::AppError;
-use crate::{Node, NodeId, QueryResponse, SearchResult};
-use std::collections::HashMap;
+use crate::{QueryResponse, SearchResult};
+use nodespace_core_types::{Node, NodeId};
 
 /// Test utilities for business logic validation
 pub struct TestUtils;
 
 impl TestUtils {
     pub fn create_test_node(content: &str) -> Node {
-        let node_id = NodeId(uuid::Uuid::new_v4().to_string());
+        let node_id = NodeId::new();
         let now = chrono::Utc::now().to_rfc3339();
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "type".to_string(),
-            serde_json::Value::String("test".to_string()),
-        );
+        let metadata = serde_json::json!({
+            "type": "test"
+        });
 
         Node {
             id: node_id,
             content: serde_json::Value::String(content.to_string()),
-            metadata: Some(serde_json::Value::Object(metadata.into_iter().collect())),
+            metadata: Some(metadata),
             created_at: now.clone(),
             updated_at: now,
         }
@@ -72,20 +70,24 @@ impl TestUtils {
         nodes
             .into_iter()
             .filter(|node| {
-                if let serde_json::Value::String(content) = &node.content {
-                    content.to_lowercase().contains(&query.to_lowercase())
+                if let Some(content_str) = node.content.as_str() {
+                    content_str.to_lowercase().contains(&query.to_lowercase())
                 } else {
                     false
                 }
             })
-            .map(|node| SearchResult {
-                snippet: if let serde_json::Value::String(content) = &node.content {
-                    content.chars().take(100).collect::<String>() + "..."
+            .map(|node| {
+                let snippet = if let Some(content_str) = node.content.as_str() {
+                    let snippet_len = content_str.len().min(100);
+                    format!("{}...", &content_str[..snippet_len])
                 } else {
                     "...".to_string()
-                },
-                score: 0.8,
-                node,
+                };
+                SearchResult {
+                    node,
+                    score: 0.8,
+                    snippet,
+                }
             })
             .collect()
     }
@@ -100,20 +102,12 @@ mod tests {
         let content = "Test content";
         let node = TestUtils::create_test_node(content);
 
-        if let serde_json::Value::String(node_content) = &node.content {
-            assert_eq!(node_content, content);
-        } else {
-            panic!("Expected content to be a string");
-        }
+        assert_eq!(node.content, serde_json::Value::String(content.to_string()));
         assert!(!node.id.0.is_empty());
         assert!(!node.created_at.is_empty());
         assert!(!node.updated_at.is_empty());
         assert_eq!(node.created_at, node.updated_at);
-        if let Some(serde_json::Value::Object(metadata)) = &node.metadata {
-            assert!(metadata.contains_key("type"));
-        } else {
-            panic!("Expected metadata to be an object");
-        }
+        assert!(node.metadata.as_ref().unwrap().get("type").is_some());
     }
 
     #[test]
@@ -191,10 +185,8 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         for result in results {
-            if let serde_json::Value::String(content) = &result.node.content {
-                assert!(content.to_lowercase().contains("search"));
-            } else {
-                panic!("Expected content to be a string");
+            if let Some(content_str) = result.node.content.as_str() {
+                assert!(content_str.to_lowercase().contains("search"));
             }
             assert_eq!(result.score, 0.8);
             assert!(!result.snippet.is_empty());

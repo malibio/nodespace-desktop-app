@@ -14,20 +14,30 @@ use crate::error::AppError;
 use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
-use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
-use nodespace_core_logic::{DateNavigation, NavigationResult, DateNode};
 use chrono::NaiveDate;
+use nodespace_core_logic::{DateNode, NavigationResult};
+use nodespace_core_types::{Node, NodeId, NodeSpaceResult};
 
 // Demo trait for clean architecture demonstration
 #[async_trait::async_trait]
-trait DemoLegacyCoreLogic: Send + Sync {
-    async fn create_node(&self, content: serde_json::Value, metadata: Option<serde_json::Value>) -> NodeSpaceResult<NodeId>;
+pub trait DemoLegacyCoreLogic: Send + Sync {
+    async fn create_node(
+        &self,
+        content: serde_json::Value,
+        metadata: Option<serde_json::Value>,
+    ) -> NodeSpaceResult<NodeId>;
     async fn get_node(&self, id: &NodeId) -> NodeSpaceResult<Option<Node>>;
     async fn delete_node(&self, id: &NodeId) -> NodeSpaceResult<()>;
     async fn search_nodes(&self, query: &str) -> NodeSpaceResult<Vec<Node>>;
     async fn process_rag_query(&self, query: &str) -> NodeSpaceResult<String>;
-    async fn create_relationship(&self, from: &NodeId, to: &NodeId, rel_type: &str) -> NodeSpaceResult<()>;
-    
+    #[allow(dead_code)]
+    async fn create_relationship(
+        &self,
+        from: &NodeId,
+        to: &NodeId,
+        rel_type: &str,
+    ) -> NodeSpaceResult<()>;
+
     // Date navigation methods
     async fn get_nodes_for_date(&self, date: NaiveDate) -> NodeSpaceResult<Vec<Node>>;
     async fn navigate_to_date(&self, date: NaiveDate) -> NodeSpaceResult<NavigationResult>;
@@ -64,7 +74,11 @@ impl DemoNodeSpaceService {
 
 #[async_trait::async_trait]
 impl DemoLegacyCoreLogic for DemoNodeSpaceService {
-    async fn create_node(&self, content: serde_json::Value, metadata: Option<serde_json::Value>) -> NodeSpaceResult<NodeId> {
+    async fn create_node(
+        &self,
+        content: serde_json::Value,
+        metadata: Option<serde_json::Value>,
+    ) -> NodeSpaceResult<NodeId> {
         let node_id = NodeId::new();
         let node = Node {
             id: node_id.clone(),
@@ -73,7 +87,7 @@ impl DemoLegacyCoreLogic for DemoNodeSpaceService {
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
         };
-        
+
         self.nodes.lock().await.insert(node_id.to_string(), node);
         Ok(node_id)
     }
@@ -114,11 +128,16 @@ impl DemoLegacyCoreLogic for DemoNodeSpaceService {
         }
     }
 
-    async fn create_relationship(&self, _from: &NodeId, _to: &NodeId, _rel_type: &str) -> NodeSpaceResult<()> {
+    async fn create_relationship(
+        &self,
+        _from: &NodeId,
+        _to: &NodeId,
+        _rel_type: &str,
+    ) -> NodeSpaceResult<()> {
         // Demo implementation
         Ok(())
     }
-    
+
     async fn get_nodes_for_date(&self, date: NaiveDate) -> NodeSpaceResult<Vec<Node>> {
         // Demo implementation: return sample nodes for any date
         let sample_content = format!("Sample journal entry for {}", date.format("%Y-%m-%d"));
@@ -135,21 +154,21 @@ impl DemoLegacyCoreLogic for DemoNodeSpaceService {
         };
         Ok(vec![node])
     }
-    
+
     async fn navigate_to_date(&self, date: NaiveDate) -> NodeSpaceResult<NavigationResult> {
         let nodes = self.get_nodes_for_date(date).await?;
         Ok(NavigationResult {
             date,
             nodes,
-            has_previous: true,  // Demo: always show navigation
+            has_previous: true, // Demo: always show navigation
             has_next: date < chrono::Utc::now().date_naive(),
         })
     }
-    
+
     async fn create_or_get_date_node(&self, date: NaiveDate) -> NodeSpaceResult<DateNode> {
         let node_id = NodeId::new();
         let description = format!("{}", date.format("%A, %B %d, %Y"));
-        
+
         Ok(DateNode {
             id: node_id,
             date,
@@ -173,20 +192,21 @@ impl Default for AppState {
 }
 
 // Service initialization helper - clean dependency boundary
-async fn initialize_nodespace_service() -> Result<Box<dyn DemoLegacyCoreLogic + Send + Sync>, String> {
+async fn initialize_nodespace_service() -> Result<Box<dyn DemoLegacyCoreLogic + Send + Sync>, String>
+{
     log::info!("🚀 NS-29: Initializing demo NodeSpace service with ZERO ML dependencies");
-    
+
     // Create demo service that demonstrates clean architecture boundary
     let service = DemoNodeSpaceService::new();
-    
+
     log_service_init("Demo NodeSpace Service");
     log_service_ready("Demo NodeSpace Service");
-    
+
     log::info!("✅ NS-29: Demo service initialized successfully with CLEAN boundary");
     log::info!("   - Desktop app has ZERO ML dependencies (clean boundary achieved)");
     log::info!("   - Architecture: Desktop → Core Logic (demo) → Future AI integration");
     log::info!("   - Ready for seamless real AI swap when NS-28 complete");
-    
+
     Ok(Box::new(service))
 }
 
@@ -222,17 +242,19 @@ async fn create_knowledge_node(
     let service = service_guard.as_ref().unwrap();
 
     // Convert metadata to serde_json::Value
-    let metadata_json = serde_json::Value::Object(
-        metadata.into_iter().collect()
-    );
-    
+    let metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
+
     // Use demo NodeSpace service with clean boundary
     let content_json = serde_json::Value::String(content);
-    let node_id = service.create_node(content_json, Some(metadata_json))
+    let node_id = service
+        .create_node(content_json, Some(metadata_json))
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
-    log::info!("✅ NS-29: Created knowledge node {} with demo service (zero ML deps in desktop app)", node_id);
+    log::info!(
+        "✅ NS-29: Created knowledge node {} with demo service (zero ML deps in desktop app)",
+        node_id
+    );
     Ok(node_id)
 }
 
@@ -257,16 +279,29 @@ async fn update_node(
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // For demo: delete and recreate node (real service would update in place)
     let node_id_obj = NodeId::from_string(node_id.clone());
-    if let Some(node) = service.get_node(&node_id_obj).await.map_err(|e| format!("Failed to get node: {}", e))? {
-        service.delete_node(&node_id_obj).await.map_err(|e| format!("Failed to delete node: {}", e))?;
+    if let Some(node) = service
+        .get_node(&node_id_obj)
+        .await
+        .map_err(|e| format!("Failed to get node: {}", e))?
+    {
+        service
+            .delete_node(&node_id_obj)
+            .await
+            .map_err(|e| format!("Failed to delete node: {}", e))?;
         let content_json = serde_json::Value::String(content);
-        service.create_node(content_json, node.metadata).await.map_err(|e| format!("Failed to recreate node: {}", e))?;
+        service
+            .create_node(content_json, node.metadata)
+            .await
+            .map_err(|e| format!("Failed to recreate node: {}", e))?;
     }
 
-    log::info!("✅ NS-29: Updated node {} with demo service (zero ML deps in desktop app)", node_id);
+    log::info!(
+        "✅ NS-29: Updated node {} with demo service (zero ML deps in desktop app)",
+        node_id
+    );
     Ok(())
 }
 
@@ -321,13 +356,14 @@ async fn process_query(
     log::info!("🚀 NS-29: Processing RAG query with REAL AI: {}", question);
 
     // Use real NodeSpace service for RAG query processing
-    let answer = service.process_rag_query(&question)
+    let answer = service
+        .process_rag_query(&question)
         .await
         .map_err(|e| format!("Failed to process query: {}", e))?;
-    
+
     // For demo: search for related nodes as sources
     let source_nodes = service.search_nodes(&question).await.unwrap_or_default();
-    
+
     // Convert to Tauri response format
     let response = QueryResponse {
         answer,
@@ -364,14 +400,19 @@ async fn semantic_search(
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
-    log::info!("🔍 NS-29: Performing semantic search with REAL embeddings: {} (limit: {})", query, limit);
-    
+
+    log::info!(
+        "🔍 NS-29: Performing semantic search with REAL embeddings: {} (limit: {})",
+        query,
+        limit
+    );
+
     // Use demo search for semantic search
-    let nodes = service.search_nodes(&query)
+    let nodes = service
+        .search_nodes(&query)
         .await
         .map_err(|e| format!("Failed to perform semantic search: {}", e))?;
-    
+
     // Convert to search results with demo scores
     let results: Vec<SearchResult> = nodes
         .into_iter()
@@ -408,23 +449,24 @@ async fn get_nodes_for_date(
     state: State<'_, AppState>,
 ) -> Result<Vec<Node>, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
-    
+
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
-    
+
     // Get or initialize the service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // Get nodes for the specified date
-    let nodes = service.get_nodes_for_date(date)
+    let nodes = service
+        .get_nodes_for_date(date)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
-    
+
     log::info!("✅ Retrieved {} nodes for date {}", nodes.len(), date_str);
     Ok(nodes)
 }
@@ -435,24 +477,29 @@ async fn navigate_to_date(
     state: State<'_, AppState>,
 ) -> Result<NavigationResult, String> {
     log_command("navigate_to_date", &format!("date: {}", date_str));
-    
+
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
-    
+
     // Get or initialize the service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // Navigate to the specified date
-    let result = service.navigate_to_date(date)
+    let result = service
+        .navigate_to_date(date)
         .await
         .map_err(|e| format!("Failed to navigate to date: {}", e))?;
-    
-    log::info!("✅ Navigated to date {} with {} nodes", date_str, result.nodes.len());
+
+    log::info!(
+        "✅ Navigated to date {} with {} nodes",
+        date_str,
+        result.nodes.len()
+    );
     Ok(result)
 }
 
@@ -462,24 +509,29 @@ async fn create_or_get_date_node(
     state: State<'_, AppState>,
 ) -> Result<DateNode, String> {
     log_command("create_or_get_date_node", &format!("date: {}", date_str));
-    
+
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
-    
+
     // Get or initialize the service
     let mut service_guard = state.core_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
     let service = service_guard.as_ref().unwrap();
-    
+
     // Create or get the date node
-    let date_node = service.create_or_get_date_node(date)
+    let date_node = service
+        .create_or_get_date_node(date)
         .await
         .map_err(|e| format!("Failed to create or get date node: {}", e))?;
-    
-    log::info!("✅ Created/retrieved date node for {} with {} children", date_str, date_node.child_count);
+
+    log::info!(
+        "✅ Created/retrieved date node for {} with {} children",
+        date_str,
+        date_node.child_count
+    );
     Ok(date_node)
 }
 

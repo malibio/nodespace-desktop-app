@@ -1,20 +1,17 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { DateNavigationBar } from "./components/DateNavigationBar";
+import { useTheme } from "./hooks/useTheme";
 import NodeSpaceEditor, { BaseNode, TextNode, DateNode, NodeSpaceCallbacks } from "nodespace-core-ui";
 import "nodespace-core-ui/dist/nodeSpace.css";
 import "./App.css";
 
 function App() {
+  const { currentTheme, toggleTheme } = useTheme();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [nodes, setNodes] = useState<BaseNode[]>([]);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-
-  // Load today's content on app launch
-  useEffect(() => {
-    handleDateChange(new Date());
-  }, [handleDateChange]);
 
   const handleDateChange = useCallback(async (date: Date) => {
     setSelectedDate(date);
@@ -55,6 +52,11 @@ function App() {
       setNodes([dateNode]);
     }
   }, []);
+
+  // Load today's content on app launch
+  useEffect(() => {
+    handleDateChange(new Date());
+  }, [handleDateChange]);
 
   const handleNodesChange = useCallback(async (newNodes: BaseNode[]) => {
     setNodes(newNodes);
@@ -116,8 +118,19 @@ function App() {
       />
       
       <div className="editor-header">
-        <h1>NodeSpace Journal</h1>
-        <p>Currently viewing: {selectedDate.toDateString()}</p>
+        <div className="header-content">
+          <div>
+            <h1>NodeSpace Journal</h1>
+            <p>Currently viewing: {selectedDate.toDateString()}</p>
+          </div>
+          <button 
+            className="theme-toggle-btn" 
+            onClick={toggleTheme}
+            title={`Switch to ${currentTheme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {currentTheme === 'dark' ? '☀️' : '🌙'}
+          </button>
+        </div>
       </div>
       
       <div className="editor-container">

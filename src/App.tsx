@@ -12,7 +12,6 @@ function App() {
   const [nodes, setNodes] = useState<BaseNode[]>([]);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-
   const handleDateChange = useCallback(async (date: Date) => {
     setSelectedDate(date);
     
@@ -57,7 +56,6 @@ function App() {
   useEffect(() => {
     handleDateChange(new Date());
   }, [handleDateChange]);
-
   const handleNodesChange = useCallback(async (newNodes: BaseNode[]) => {
     setNodes(newNodes);
     

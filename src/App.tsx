@@ -1,90 +1,50 @@
-import { useState, useCallback, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { DateNavigationBar } from "./components/DateNavigationBar";
-import { useTheme } from "./hooks/useTheme";
-import NodeSpaceEditor, { BaseNode, TextNode, DateNode, NodeSpaceCallbacks } from "nodespace-core-ui";
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { TextNode, BaseNode, TaskNode } from 'nodespace-core-ui';
+import NodeSpaceEditor from 'nodespace-core-ui';
+import { NodeSpaceCallbacks } from 'nodespace-core-ui';
+import { countAllNodes } from 'nodespace-core-ui';
+import DatePicker from 'react-datepicker';
+import { invoke } from '@tauri-apps/api/tauri';
+import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
-import "./App.css";
+import './App.css';
 
 function App() {
-  const { currentTheme, toggleTheme } = useTheme();
-  const [selectedDate, setSelectedDate] = useState(new Date());
   const [nodes, setNodes] = useState<BaseNode[]>([]);
-  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-  const handleDateChange = useCallback(async (date: Date) => {
-    setSelectedDate(date);
-    
-    try {
-      // Load nodes for the selected date from core-logic
-      const dateStr = date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-      const result = await invoke("navigate_to_date", { dateStr });
-      
-      console.log("Navigation result:", result);
-      
-      // Convert the result nodes to UI nodes
-      if (result && result.nodes) {
-        const dateNode = new DateNode(date, 'full');
-        
-        // Add child nodes from the database
-        result.nodes.forEach((dbNode: any) => {
-          if (dbNode.content && typeof dbNode.content === 'string') {
-            const textNode = new TextNode(dbNode.content);
-            dateNode.addChild(textNode);
-          }
-        });
-        
-        setNodes([dateNode]);
-      } else {
-        // Create empty date node if no content exists
-        const dateNode = new DateNode(date, 'full');
-        const textNode = new TextNode("Start writing your thoughts for today...");
-        dateNode.addChild(textNode);
-        setNodes([dateNode]);
-      }
-    } catch (error) {
-      console.error("Failed to load nodes for date:", error);
-      // Fallback to demo content
-      const dateNode = new DateNode(date, 'full');
-      const textNode = new TextNode("Start writing your thoughts for today...");
-      dateNode.addChild(textNode);
-      setNodes([dateNode]);
+  
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
+  
+  const totalNodeCount = countAllNodes(nodes);
+  const callbacks: NodeSpaceCallbacks = {
+    onNodesChange: (newNodes: BaseNode[]) => {
+      setNodes(newNodes);
+    },
+    onNodeChange: (nodeId: string, content: string) => {
+      // Auto-save content changes with debouncing
+      debouncedSaveContent(nodeId, content);
+    },
+    onStructureChange: (operation: string, nodeId: string) => {
+      // Immediately save structure changes (parent/child relationships)
+      saveStructureChange(operation, nodeId);
     }
-  }, []);
+  };
 
-  // Load today's content on app launch
-  useEffect(() => {
-    handleDateChange(new Date());
-  }, [handleDateChange]);
-  const handleNodesChange = useCallback(async (newNodes: BaseNode[]) => {
-    setNodes(newNodes);
-    
-    // Persist changes through core-logic to data-store
-    try {
-      for (const node of newNodes) {
-        if (node.getNodeType() === 'text') {
-          const textNode = node as TextNode;
-          const content = textNode.getContent();
-          
-          // Only persist non-empty content
-          if (content && content.trim() !== "Start writing your thoughts for today...") {
-            await invoke("create_knowledge_node", {
-              content: content,
-              metadata: {
-                date: selectedDate.toISOString().split('T')[0],
-                node_type: "text",
-                parent_date: selectedDate.toISOString().split('T')[0]
-              }
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.error("Failed to persist node changes:", error);
-    }
-  }, [selectedDate]);
+  const handleFocus = (nodeId: string) => {
+    setFocusedNodeId(nodeId);
+  };
 
-  const handleCollapseChange = useCallback((nodeId: string, collapsed: boolean) => {
+  const handleBlur = () => {
+    setFocusedNodeId(null);
+  };
+
+  const handleCollapseChange = (nodeId: string, collapsed: boolean) => {
     setCollapsedNodes(prev => {
       const newSet = new Set(prev);
       if (collapsed) {
@@ -94,55 +54,162 @@ function App() {
       }
       return newSet;
     });
-  }, []);
+  };
 
-  const callbacks: NodeSpaceCallbacks = {
-    onNodesChange: handleNodesChange,
-    onSlashCommand: (type: string, currentNode: BaseNode) => {
-      console.log("Slash command:", type, currentNode);
-      // TODO: Handle slash commands (create new nodes, AI chat, etc.)
-    },
-    onEnterKey: (currentNode: BaseNode) => {
-      console.log("Enter key pressed:", currentNode);
-      // TODO: Handle enter key (create new sibling node)
+  const handleRemoveNode = (node: BaseNode) => {
+    if (totalNodeCount > 1) {
+      if (node.parent) {
+        node.parent.removeChild(node);
+      } else {
+        const newNodes = nodes.filter(n => n.getNodeId() !== node.getNodeId());
+        setNodes(newNodes);
+        return;
+      }
+      setNodes([...nodes]);
     }
   };
 
-  return (
-    <div className="container">
-      <DateNavigationBar 
-        selectedDate={selectedDate} 
-        onDateChange={handleDateChange} 
-      />
+  const addNode = () => {
+    const newNode = new TextNode('New node');
+    setNodes([...nodes, newNode]);
+  };
+
+  const navigateDate = (direction: 'prev' | 'next') => {
+    const newDate = new Date(selectedDate);
+    newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
+    setSelectedDate(newDate);
+  };
+
+  const handleDateChange = (date: Date | null) => {
+    if (date) {
+      setSelectedDate(date);
+    }
+    setShowDatePicker(false);
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
+
+  // Convert backend Node data to frontend BaseNode instances
+  const convertToBaseNodes = (backendNodes: any[]): BaseNode[] => {
+    return backendNodes.map(nodeData => {
+      const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
+      const node = new TextNode(content);
+      // Set the ID to match backend
+      (node as any).id = nodeData.id;
+      return node;
+    });
+  };
+
+  // Load nodes for a specific date from database
+  const loadNodesForDate = useCallback(async (date: Date) => {
+    try {
+      setLoading(true);
+      const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      <div className="editor-header">
-        <div className="header-content">
-          <div>
-            <h1>NodeSpace Journal</h1>
-            <p>Currently viewing: {selectedDate.toDateString()}</p>
+      console.log(`🔄 NS-39: Loading nodes for date: ${dateStr}`);
+      const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
+        dateStr: dateStr 
+      });
+      
+      console.log(`✅ NS-39: Loaded ${backendNodes.length} nodes from database`);
+      const frontendNodes = convertToBaseNodes(backendNodes);
+      setNodes(frontendNodes);
+    } catch (error) {
+      console.error('Failed to load nodes for date:', error);
+      // Fallback to empty nodes on error
+      setNodes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load nodes when date changes
+  useEffect(() => {
+    loadNodesForDate(selectedDate);
+  }, [selectedDate, loadNodesForDate]);
+
+  // Debounced auto-save for content changes
+  const debouncedSaveContent = useCallback(
+    debounce(async (nodeId: string, content: string) => {
+      try {
+        console.log(`💾 NS-39: Auto-saving content for node ${nodeId}`);
+        await invoke('update_node_content', { nodeId, content });
+        console.log(`✅ NS-39: Auto-saved content for node ${nodeId}`);
+      } catch (error) {
+        console.error('Failed to auto-save node content:', error);
+      }
+    }, 500), // 500ms delay
+    []
+  );
+
+  // Immediate save for structure changes  
+  const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {
+    try {
+      console.log(`🔄 NS-39: Saving structure change '${operation}' for node ${nodeId}`);
+      await invoke('update_node_structure', { operation, nodeId });
+      console.log(`✅ NS-39: Saved structure change for node ${nodeId}`);
+    } catch (error) {
+      console.error('Failed to save structure change:', error);
+    }
+  }, []);
+
+  // Helper function for debouncing
+  function debounce<T extends (...args: any[]) => any>(
+    func: T, 
+    wait: number
+  ): (...args: Parameters<T>) => void {
+    let timeout: NodeJS.Timeout;
+    return function executedFunction(...args: Parameters<T>) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  return (
+    <div className={`app-container ${isDarkMode ? 'ns-dark-mode' : ''}`}>
+      <div className="app-header">
+        <div className="date-navigation">
+          <button onClick={() => navigateDate('prev')} className="nav-button">
+            ‹
+          </button>
+          <div className="date-display-container">
+            <button onClick={() => setShowDatePicker(!showDatePicker)} className="date-display">
+              {formatDate(selectedDate)}
+            </button>
+            {showDatePicker && (
+              <div className="date-picker-wrapper">
+                <DatePicker
+                  selected={selectedDate}
+                  onChange={handleDateChange}
+                  inline
+                />
+              </div>
+            )}
           </div>
-          <button 
-            className="theme-toggle-btn" 
-            onClick={toggleTheme}
-            title={`Switch to ${currentTheme === 'dark' ? 'light' : 'dark'} mode`}
-          >
-            {currentTheme === 'dark' ? '☀️' : '🌙'}
+          <button onClick={() => navigateDate('next')} className="nav-button">
+            ›
           </button>
         </div>
+        <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle">
+          {isDarkMode ? '☀️' : '🌙'}
+        </button>
       </div>
-      
-      <div className="editor-container">
-        <NodeSpaceEditor
-          nodes={nodes}
-          focusedNodeId={focusedNodeId}
-          callbacks={callbacks}
-          onFocus={setFocusedNodeId}
-          onBlur={() => setFocusedNodeId(null)}
-          collapsedNodes={collapsedNodes}
-          onCollapseChange={handleCollapseChange}
-          className="journal-editor"
-        />
-      </div>
+
+      <NodeSpaceEditor
+        nodes={nodes}
+        callbacks={callbacks}
+      />
     </div>
   );
 }

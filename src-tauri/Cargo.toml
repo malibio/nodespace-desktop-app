@@ -27,13 +27,12 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 thiserror = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 fern = "0.7"
+async-trait = "0.1"
 
 # Tauri
 tauri = { version = "2.5.0", features = [] }
 tauri-plugin-log = "2.0.0-rc"
 
-# NodeSpace core services - clean dependency boundary (NS-28 AI stack now stable!)
+# NodeSpace core services - clean dependency boundary (ADR-008)
 nodespace-core-types = { path = "../../nodespace-core-types" }
-nodespace-core-logic = { path = "../../nodespace-core-logic" }
-nodespace-data-store = { path = "../../nodespace-data-store" }
-nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", default-features = false, features = ["cpu-only"] }
+# NO core-logic, data-store or nlp-engine dependencies - demo service only

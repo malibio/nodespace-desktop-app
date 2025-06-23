@@ -1,11 +1,13 @@
 import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
+import { DateNavigationBar } from "./components/DateNavigationBar";
 import "./App.css";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   async function greet() {
     try {
@@ -16,9 +18,21 @@ function App() {
     }
   }
 
+  const handleDateChange = (date: Date) => {
+    setSelectedDate(date);
+    // TODO: Connect to core-logic date navigation services when NS-32 is complete
+    console.log("Date changed to:", date.toDateString());
+  };
+
   return (
     <div className="container">
+      <DateNavigationBar 
+        selectedDate={selectedDate} 
+        onDateChange={handleDateChange} 
+      />
+      
       <h1>Welcome to NodeSpace!</h1>
+      <p>Currently viewing: {selectedDate.toDateString()}</p>
 
       <div className="row">
         <a href="https://vitejs.dev" target="_blank">

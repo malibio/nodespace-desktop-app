@@ -35,4 +35,4 @@ tauri-plugin-log = "2.0.0-rc"
 
 # NodeSpace core services - clean dependency boundary (ADR-008)
 nodespace-core-types = { path = "../../nodespace-core-types" }
-# NO core-logic, data-store or nlp-engine dependencies - demo service only
+nodespace-core-logic = { path = "../../nodespace-core-logic" }

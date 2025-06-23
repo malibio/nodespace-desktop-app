@@ -4,6 +4,11 @@
   background: #fafafa;
 }
 
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .editor-header h1 {
   margin: 0 0 0.5rem 0;
   font-size: 1.5rem;
@@ -17,6 +22,30 @@
   font-size: 0.9rem;
 }
 
+.theme-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--ns-header-border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--ns-header-border);
+  transform: scale(1.05);
+}
+
+.theme-toggle-btn:active {
+  transform: scale(0.95);
+}
+
 .editor-container {
   flex: 1;
   padding: 2rem;
@@ -28,18 +57,134 @@
   margin: 0 auto;
 }
 
-/* Dark theme support */
+/* ========================================
+   NODESPACE HYBRID THEME SYSTEM
+   Zed Projects color scheme + Tauri native OS integration
+   ======================================== */
+
+/* CSS Custom Properties for flexible theming */
+:root {
+  /* NodeSpace core-ui overrides */
+  --ns-circle-color: #94A2B8;           /* Inner circle color */
+  --ns-parent-border-color: #C9D0DB;    /* Outer circle color for parents */
+  
+  /* Desktop app theme variables */
+  --ns-app-bg: #ffffff;
+  --ns-app-text: #1a1a1a;
+  --ns-header-bg: #fafafa;
+  --ns-header-border: #e5e5e5;
+  --ns-text-secondary: #666;
+}
+
+/* Dark theme CSS custom properties */
+.ns-dark-mode {
+  background-color: #1a1a1a;
+  color: #e5e5e5;
+  
+  /* NodeSpace core-ui dark mode overrides */
+  --ns-circle-color: #64748b;           /* Darker inner circle for dark mode */
+  --ns-parent-border-color: #475569;    /* Darker outer circle for dark mode */
+  
+  /* Desktop app dark theme variables */
+  --ns-app-bg: #1a1a1a;
+  --ns-app-text: #e5e5e5;
+  --ns-header-bg: #1a1a1a;
+  --ns-header-border: #3a3a3a;
+  --ns-text-secondary: #999;
+}
+
+/* Apply theme variables to app elements */
+.container {
+  background-color: var(--ns-app-bg);
+  color: var(--ns-app-text);
+}
+
+.editor-header {
+  background: var(--ns-header-bg);
+  border-bottom-color: var(--ns-header-border);
+}
+
+.editor-header h1 {
+  color: var(--ns-app-text);
+}
+
+.editor-header p {
+  color: var(--ns-text-secondary);
+}
+
+/* NodeSpace core-ui component dark mode styles */
+.ns-dark-mode .ns-node-textarea {
+  color: #e5e5e5;
+  background-color: transparent;
+}
+
+.ns-dark-mode .ns-button {
+  background-color: #374151;
+  color: #e5e5e5;
+  border-color: #6b7280;
+}
+
+.ns-dark-mode .ns-button:hover {
+  background-color: #4b5563;
+}
+
+.ns-dark-mode .ns-editor-status {
+  color: #9ca3af;
+}
+
+.ns-dark-mode .ns-help {
+  color: #9ca3af;
+}
+
+.ns-dark-mode .ns-help strong {
+  color: #e5e5e5;
+}
+
+/* Dark mode slash command modal */
+.ns-dark-mode .ns-slash-command-modal {
+  background: #374151;
+  border-color: #4b5563;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.ns-dark-mode .ns-slash-command-option {
+  color: #f9fafb;
+}
+
+.ns-dark-mode .ns-slash-command-option:hover {
+  background-color: #4b5563;
+}
+
+.ns-dark-mode .ns-slash-command-option.ns-selected {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+.ns-dark-mode .ns-slash-command-label {
+  color: #f9fafb;
+}
+
+/* Dark mode SVG icons */
+.ns-dark-mode .ns-icon {
+  color: #f9fafb;
+}
+
+/* Automatic OS theme detection fallback */
 @media (prefers-color-scheme: dark) {
-  .editor-header {
+  body:not(.ns-dark-mode):not(.ns-light-mode) .container {
+    background-color: #1a1a1a;
+    color: #e5e5e5;
+  }
+  
+  body:not(.ns-dark-mode):not(.ns-light-mode) .editor-header {
     background: #1a1a1a;
     border-bottom-color: #3a3a3a;
   }
   
-  .editor-header h1 {
+  body:not(.ns-dark-mode):not(.ns-light-mode) .editor-header h1 {
     color: #e5e5e5;
   }
   
-  .editor-header p {
+  body:not(.ns-dark-mode):not(.ns-light-mode) .editor-header p {
     color: #999;
   }
 }

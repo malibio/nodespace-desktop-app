@@ -106,11 +106,12 @@ async fn create_knowledge_node(
     // Convert metadata to serde_json::Value
     let metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
 
-    // Use real ServiceContainer with database persistence
+    // Use real ServiceContainer with database persistence - use today's date
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let node_id = service_container
-        .create_knowledge_node(&content, metadata_json)
+        .create_text_node(&content, &today)
         .await
-        .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
+        .map_err(|e| format!("Failed to create text node: {}", e))?;
 
     log::info!(
         "✅ NS-39: Created knowledge node {} with real ServiceContainer and database persistence",
@@ -317,8 +318,7 @@ async fn get_nodes_for_date(
     let service_container = service_guard.as_ref().unwrap();
 
     // Get nodes for the specified date using real database
-    let nodes = service_container
-        .get_nodes_for_date(date)
+    let nodes = DateNavigation::get_nodes_for_date(service_container.as_ref(), date)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 

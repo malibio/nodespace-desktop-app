@@ -35,5 +35,5 @@ tauri-plugin-log = "2.0.0-rc"
 
 # NodeSpace core services - clean dependency boundary (ADR-008)
 nodespace-core-types = { path = "../../nodespace-core-types" }
-# Temporarily disable real-ml features to bypass Metal compilation issues
-nodespace-core-logic = { path = "../../nodespace-core-logic", default-features = false }
+# Full features enabled - unified Candle stack resolves Metal compilation issues
+nodespace-core-logic = { path = "../../nodespace-core-logic" }

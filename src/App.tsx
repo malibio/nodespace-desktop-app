@@ -4,9 +4,10 @@ import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
 import DatePicker from 'react-datepicker';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
+import './styles.css';
 import './App.css';
 
 function App() {
@@ -151,6 +152,19 @@ function App() {
 
   // Load nodes for a specific date from database
   const loadNodesForDate = useCallback(async (date: Date) => {
+    // Check if Tauri is available
+    if (typeof window !== 'undefined' && !window.__TAURI_INTERNALS__) {
+      console.log('🚀 Running in frontend-only mode - creating default node');
+      setLoading(false);
+      
+      // Provide a default node for frontend-only mode
+      if (nodes.length === 0) {
+        const defaultNode = new TextNode('Welcome to NodeSpace! Start typing...');
+        setNodes([defaultNode]);
+      }
+      return;
+    }
+    
     try {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
@@ -260,6 +274,12 @@ function App() {
       <NodeSpaceEditor
         nodes={nodes}
         callbacks={callbacks}
+        focusedNodeId={focusedNodeId}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onRemoveNode={handleRemoveNode}
+        collapsedNodes={collapsedNodes}
+        onCollapseChange={handleCollapseChange}
       />
     </div>
   );

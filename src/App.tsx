@@ -98,13 +98,55 @@ function App() {
 
   // Convert backend Node data to frontend BaseNode instances
   const convertToBaseNodes = (backendNodes: any[]): BaseNode[] => {
-    return backendNodes.map(nodeData => {
+    // Sort nodes by sibling order for proper sequence display
+    const sortedNodes = sortNodesBySiblingOrder(backendNodes);
+    
+    return sortedNodes.map(nodeData => {
       const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
       const node = new TextNode(content);
       // Set the ID to match backend
       (node as any).id = nodeData.id;
+      // Store sibling pointer information for UI ordering
+      (node as any).next_sibling = nodeData.next_sibling;
+      (node as any).previous_sibling = nodeData.previous_sibling;
       return node;
     });
+  };
+
+  // Sort nodes by sibling pointer relationships for proper sequence display
+  const sortNodesBySiblingOrder = (nodes: any[]): any[] => {
+    if (nodes.length === 0) return nodes;
+
+    // Create a map for quick lookup
+    const nodeMap = new Map(nodes.map(node => [node.id, node]));
+    const sortedNodes: any[] = [];
+    const visited = new Set<string>();
+
+    // Find nodes that have no previous sibling (start of sequences)
+    const firstNodes = nodes.filter(node => !node.previous_sibling);
+
+    // Process each sequence starting from first nodes
+    for (const firstNode of firstNodes) {
+      let currentNode = firstNode;
+      
+      // Follow the sibling chain
+      while (currentNode && !visited.has(currentNode.id)) {
+        visited.add(currentNode.id);
+        sortedNodes.push(currentNode);
+        
+        // Move to next sibling
+        currentNode = currentNode.next_sibling ? nodeMap.get(currentNode.next_sibling) : null;
+      }
+    }
+
+    // Add any remaining nodes that weren't part of sibling chains
+    for (const node of nodes) {
+      if (!visited.has(node.id)) {
+        sortedNodes.push(node);
+      }
+    }
+
+    return sortedNodes;
   };
 
   // Load nodes for a specific date from database
@@ -149,16 +191,25 @@ function App() {
     []
   );
 
-  // Immediate save for structure changes  
+  // Immediate save for structure changes including sibling relationships
   const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {
     try {
-      console.log(`🔄 NS-39: Saving structure change '${operation}' for node ${nodeId}`);
+      console.log(`🔄 NS-46: Saving structure change '${operation}' for node ${nodeId}`);
+      
+      // Handle sibling relationship operations
+      if (operation.includes('move_') || operation.includes('reorder')) {
+        console.log(`📝 NS-46: Processing sibling relationship change: ${operation}`);
+      }
+      
       await invoke('update_node_structure', { operation, nodeId });
-      console.log(`✅ NS-39: Saved structure change for node ${nodeId}`);
+      console.log(`✅ NS-46: Saved structure change for node ${nodeId}`);
+      
+      // Reload nodes to reflect updated sibling relationships
+      await loadNodesForDate(selectedDate);
     } catch (error) {
       console.error('Failed to save structure change:', error);
     }
-  }, []);
+  }, [selectedDate, loadNodesForDate]);
 
   // Helper function for debouncing
   function debounce<T extends (...args: any[]) => any>(

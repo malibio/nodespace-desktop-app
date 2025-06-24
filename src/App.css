@@ -168,6 +168,69 @@
   color: #f9fafb;
 }
 
+/* NS-46: Sibling relationship visual indicators */
+.ns-node-with-siblings {
+  position: relative;
+}
+
+.ns-node-with-siblings::before {
+  content: '';
+  position: absolute;
+  left: -15px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    var(--ns-circle-color) 0%,
+    var(--ns-circle-color) 100%
+  );
+  opacity: 0.6;
+}
+
+.ns-node-first-sibling::before {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 50%,
+    var(--ns-circle-color) 50%,
+    var(--ns-circle-color) 100%
+  );
+}
+
+.ns-node-last-sibling::before {
+  background: linear-gradient(
+    to bottom,
+    var(--ns-circle-color) 0%,
+    var(--ns-circle-color) 50%,
+    transparent 50%,
+    transparent 100%
+  );
+}
+
+.ns-node-only-sibling::before {
+  display: none;
+}
+
+.ns-sequence-indicator {
+  position: absolute;
+  left: -25px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--ns-text-secondary);
+  opacity: 0.7;
+}
+
+/* Dark mode adjustments for sibling indicators */
+.ns-dark-mode .ns-node-with-siblings::before {
+  opacity: 0.8;
+}
+
+.ns-dark-mode .ns-sequence-indicator {
+  color: var(--ns-text-secondary);
+}
+
 /* Automatic OS theme detection fallback */
 @media (prefers-color-scheme: dark) {
   body:not(.ns-dark-mode):not(.ns-light-mode) .container {

@@ -5,24 +5,39 @@ import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
 import DatePicker from 'react-datepicker';
 import { invoke } from '@tauri-apps/api/core';
-import { useTheme } from './hooks/useTheme';
 import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
 
 function App() {
-  const [nodes, setNodes] = useState<BaseNode[]>([]);
+  const [nodes, setNodes] = useState<BaseNode[]>(() => {
+    // Initialize with a single node if empty
+    const initialNode = new TextNode('Welcome to NodeSpace');
+    return [initialNode];
+  });
   const [loading, setLoading] = useState<boolean>(true);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
-  const { currentTheme, toggleTheme } = useTheme();
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
   
   const totalNodeCount = countAllNodes(nodes);
+  const handleCollapseChange = useCallback((nodeId: string, collapsed: boolean) => {
+    setCollapsedNodes(prev => {
+      const newSet = new Set(prev);
+      if (collapsed) {
+        newSet.add(nodeId);
+      } else {
+        newSet.delete(nodeId);
+      }
+      return newSet;
+    });
+  }, []);
+
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
@@ -34,6 +49,14 @@ function App() {
     onStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)
       saveStructureChange(operation, nodeId);
+    },
+    onSlashCommand: (type: string, currentNode: BaseNode) => {
+      console.log("Slash command:", type, currentNode);
+      // TODO: Handle slash commands (create new nodes, AI chat, etc.)
+    },
+    onEnterKey: (currentNode: BaseNode) => {
+      console.log("Enter key pressed:", currentNode);
+      // TODO: Handle enter key (create new sibling node)
     }
   };
 
@@ -43,18 +66,6 @@ function App() {
 
   const handleBlur = () => {
     setFocusedNodeId(null);
-  };
-
-  const handleCollapseChange = (nodeId: string, collapsed: boolean) => {
-    setCollapsedNodes(prev => {
-      const newSet = new Set(prev);
-      if (collapsed) {
-        newSet.add(nodeId);
-      } else {
-        newSet.delete(nodeId);
-      }
-      return newSet;
-    });
   };
 
   const handleRemoveNode = (node: BaseNode) => {
@@ -175,7 +186,9 @@ function App() {
 
   // Load nodes when date changes
   useEffect(() => {
-    loadNodesForDate(selectedDate);
+    // Temporarily disabled until ONNX migration is complete
+    // loadNodesForDate(selectedDate);
+    setLoading(false);
   }, [selectedDate, loadNodesForDate]);
 
   // Debounced auto-save for content changes
@@ -229,7 +242,7 @@ function App() {
   }
 
   return (
-    <div className={`app-container ${currentTheme === 'dark' ? 'ns-dark-mode' : ''}`}>
+    <div className={`app-container ${isDarkMode ? 'ns-dark-mode' : ''}`}>
       <div className="app-header">
         <div className="date-navigation">
           <button onClick={() => navigateDate('prev')} className="nav-button">
@@ -253,14 +266,20 @@ function App() {
             ›
           </button>
         </div>
-        <button onClick={toggleTheme} className="theme-toggle">
-          {currentTheme === 'dark' ? '☀️' : '🌙'}
+        <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle">
+          {isDarkMode ? '☀️' : '🌙'}
         </button>
       </div>
 
       <NodeSpaceEditor
         nodes={nodes}
+        focusedNodeId={focusedNodeId}
         callbacks={callbacks}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onRemoveNode={handleRemoveNode}
+        collapsedNodes={collapsedNodes}
+        onCollapseChange={handleCollapseChange}
       />
     </div>
   );

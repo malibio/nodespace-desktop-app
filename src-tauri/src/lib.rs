@@ -14,12 +14,12 @@ use crate::error::AppError;
 use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
-use chrono::{NaiveDate, Local};
-use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation, HierarchicalNode};
+use chrono::{Local, NaiveDate};
+use nodespace_core_logic::{
+    CoreLogic, DateNavigation, DateNode, HierarchicalNode, NavigationResult, ServiceContainer,
+};
 use nodespace_core_types::{Node, NodeId};
 // NOTE: No direct data-store or nlp-engine imports - clean architecture boundary
-
-// Real ServiceContainer integration - no more demo traits needed
 
 // Additional response types for Tauri commands
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,9 +36,6 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-// Real ServiceContainer integration - replaced demo implementation
-
-
 // Application state with real ServiceContainer
 pub struct AppState {
     pub service_container: Arc<Mutex<Option<Arc<ServiceContainer>>>>,
@@ -54,27 +51,24 @@ impl Default for AppState {
 
 // ServiceContainer initialization helper - real integration
 async fn initialize_service_container() -> Result<Arc<ServiceContainer>, String> {
-    log::info!("🚀 NS-39: Initializing real ServiceContainer with database integration");
+    log::info!("Initializing ServiceContainer with database integration");
 
-    // DESIGN PRINCIPLE: Desktop app determines platform-specific paths
-    // Clean separation: Desktop App → ServiceContainer → DataStore + NLP Engine
+    // Desktop app determines platform-specific paths
     let database_path = "/Users/malibio/nodespace/nodespace-data-store/data/sample.db";
-    let model_path = std::path::PathBuf::from("/Users/malibio/nodespace/nodespace-nlp-engine/models/gemma-3-1b-it-onnx/model.onnx");
-    
-    // ServiceContainer orchestrates services with injected configuration
-    let service_container = ServiceContainer::new_with_database_and_model_paths(
-        database_path,
-        model_path
-    )
-        .await
-        .map_err(|e| format!("Failed to initialize ServiceContainer: {}", e))?;
+    let model_path = std::path::PathBuf::from(
+        "/Users/malibio/nodespace/nodespace-nlp-engine/models/gemma-3-1b-it-onnx/model.onnx",
+    );
+
+    let service_container =
+        ServiceContainer::new_with_database_and_model_paths(database_path, model_path)
+            .await
+            .map_err(|e| format!("Failed to initialize ServiceContainer: {}", e))?;
 
     log_service_init("Real ServiceContainer");
     log_service_ready("Real ServiceContainer");
 
     log::info!("ServiceContainer initialized successfully");
     log::debug!("Connected to SurrealDB with sample data");
-    log::debug!("Architecture: Desktop → Core Logic → Data Store + NLP Engine");
 
     Ok(Arc::new(service_container))
 }
@@ -112,11 +106,11 @@ async fn create_knowledge_node(
 
     // Extract date from metadata or use current date
     let current_date = Local::now().format("%Y-%m-%d").to_string();
-    let date = metadata.get("date")
+    let date = metadata
+        .get("date")
         .and_then(|v| v.as_str())
         .unwrap_or(&current_date);
 
-    // Use real ServiceContainer with database persistence
     let node_id = service_container
         .create_text_node(&content, date)
         .await
@@ -148,9 +142,8 @@ async fn update_node(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Use real ServiceContainer to update node in place
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     service_container
         .update_node(&node_id_obj, &content)
         .await
@@ -159,37 +152,6 @@ async fn update_node(
     log::debug!("Updated node {}", node_id);
     Ok(())
 }
-
-// TODO: Enable once core-logic ServiceContainer has get_node method
-// #[tauri::command]
-// async fn get_node(node_id: String, state: State<'_, AppState>) -> Result<Option<Node>, String> {
-//     log_command("get_node", &format!("node_id: {}", node_id));
-//
-//     // Get or initialize the ServiceContainer
-//     let mut service_guard = state.service_container.lock().await;
-//     if service_guard.is_none() {
-//         *service_guard = Some(initialize_service_container().await?);
-//     }
-//     let service_container = service_guard.as_ref().unwrap();
-//
-//     // Use real ServiceContainer through core-logic interface (clean architecture)
-//     let node_id_obj = NodeId::from_string(node_id.clone());
-//     let result = service_container
-//         .get_node(&node_id_obj)
-//         .await
-//         .map_err(|e| format!("Failed to get node: {}", e))?;
-//
-//     if result.is_some() {
-//         log::info!(
-//             "✅ NS-39: Retrieved node {} from database via ServiceContainer",
-//             node_id
-//         );
-//     } else {
-//         log::warn!("Node not found: {} (database lookup via ServiceContainer)", node_id);
-//     }
-//
-//     Ok(result)
-// }
 
 #[tauri::command]
 async fn process_query(
@@ -211,18 +173,16 @@ async fn process_query(
 
     log::debug!("Processing RAG query: {}", question);
 
-    // Use real ServiceContainer for RAG query processing
     let query_response = service_container
         .process_query(&question)
         .await
         .map_err(|e| format!("Failed to process query: {}", e))?;
 
-    // Search for related nodes as sources using real database
     let search_results = service_container
         .semantic_search(&question, 5)
         .await
         .unwrap_or_default();
-    
+
     let source_nodes: Vec<Node> = search_results.into_iter().map(|r| r.node).collect();
 
     // Convert to Tauri response format
@@ -264,7 +224,6 @@ async fn semantic_search(
 
     log::debug!("Performing semantic search: {} (limit: {})", query, limit);
 
-    // Use real ServiceContainer for semantic search
     let search_results = service_container
         .semantic_search(&query, limit)
         .await
@@ -313,22 +272,16 @@ async fn get_nodes_for_date(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Get nodes for the specified date using real database
     let nodes = DateNavigation::get_nodes_for_date(&**service_container, date)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 
-    log::debug!("Retrieved {} nodes for date {} from database", nodes.len(), dateStr);
-    
-    // Debug: Print first few node details if any exist
-    if !nodes.is_empty() {
-        log::debug!("First node preview: ID={:?}, Content length={}", 
-                   nodes[0].id, 
-                   nodes[0].content.as_str().map(|s| s.len()).unwrap_or(0));
-    } else {
-        log::debug!("No nodes found for date {} in database", dateStr);
-    }
-    
+    log::debug!(
+        "Retrieved {} nodes for date {} from database",
+        nodes.len(),
+        dateStr
+    );
+
     Ok(nodes)
 }
 
@@ -337,7 +290,10 @@ async fn get_hierarchical_nodes_for_date(
     #[allow(non_snake_case)] dateStr: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<HierarchicalNode>, String> {
-    log_command("get_hierarchical_nodes_for_date", &format!("date: {}", dateStr));
+    log_command(
+        "get_hierarchical_nodes_for_date",
+        &format!("date: {}", dateStr),
+    );
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&dateStr, "%Y-%m-%d")
@@ -350,24 +306,17 @@ async fn get_hierarchical_nodes_for_date(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Get hierarchical nodes for the specified date using real database
-    let hierarchical_nodes = DateNavigation::get_hierarchical_nodes_for_date(&**service_container, date)
-        .await
-        .map_err(|e| format!("Failed to get hierarchical nodes for date: {}", e))?;
+    let hierarchical_nodes =
+        DateNavigation::get_hierarchical_nodes_for_date(&**service_container, date)
+            .await
+            .map_err(|e| format!("Failed to get hierarchical nodes for date: {}", e))?;
 
-    log::debug!("Retrieved {} hierarchical nodes for date {} from database", hierarchical_nodes.len(), dateStr);
-    
-    // Debug: Print first few hierarchical node details if any exist
-    if !hierarchical_nodes.is_empty() {
-        log::debug!("First hierarchical node preview: ID={:?}, Parent={:?}, Children count={}, Depth={}", 
-                   hierarchical_nodes[0].node.id, 
-                   hierarchical_nodes[0].parent,
-                   hierarchical_nodes[0].children.len(),
-                   hierarchical_nodes[0].depth_level);
-    } else {
-        log::debug!("No hierarchical nodes found for date {} in database", dateStr);
-    }
-    
+    log::debug!(
+        "Retrieved {} hierarchical nodes for date {} from database",
+        hierarchical_nodes.len(),
+        dateStr
+    );
+
     Ok(hierarchical_nodes)
 }
 
@@ -389,13 +338,16 @@ async fn navigate_to_date(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Navigate to the specified date using real database
     let result = service_container
         .navigate_to_date(date)
         .await
         .map_err(|e| format!("Failed to navigate to date: {}", e))?;
 
-    log::debug!("Navigated to date {} - {} nodes", dateStr, result.nodes.len());
+    log::debug!(
+        "Navigated to date {} - {} nodes",
+        dateStr,
+        result.nodes.len()
+    );
     Ok(result)
 }
 
@@ -417,24 +369,30 @@ async fn create_or_get_date_node(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Create or get the date node using real database
     let date_node = service_container
         .create_or_get_date_node(date)
         .await
         .map_err(|e| format!("Failed to create or get date node: {}", e))?;
 
-    log::debug!("Created/retrieved date node for {} - {} children", dateStr, date_node.child_count);
+    log::debug!(
+        "Created/retrieved date node for {} - {} children",
+        dateStr,
+        date_node.child_count
+    );
     Ok(date_node)
 }
 
-// Real-time async saving commands for NS-39
+// Real-time async saving commands
 #[tauri::command]
 async fn update_node_content(
     node_id: String,
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_content", &format!("node_id: {}, content_len: {}", node_id, content.len()));
+    log_command(
+        "update_node_content",
+        &format!("node_id: {}, content_len: {}", node_id, content.len()),
+    );
 
     // Get or initialize the ServiceContainer
     let mut service_guard = state.service_container.lock().await;
@@ -443,9 +401,8 @@ async fn update_node_content(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Auto-save content changes to database
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     service_container
         .update_node(&node_id_obj, &content)
         .await
@@ -461,7 +418,10 @@ async fn update_node_structure(
     node_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_structure", &format!("operation: {}, node_id: {}", operation, node_id));
+    log_command(
+        "update_node_structure",
+        &format!("operation: {}, node_id: {}", operation, node_id),
+    );
 
     // Get or initialize the ServiceContainer
     let mut service_guard = state.service_container.lock().await;
@@ -470,16 +430,10 @@ async fn update_node_structure(
     }
     let _service_container = service_guard.as_ref().unwrap();
 
-    // Immediately save structure changes (parent/child relationships)
     let _node_id_obj = NodeId::from_string(node_id.clone());
-    
-    // For now, log the structure change - real implementation would update relationships
+
     log::debug!("Structure change '{}' for node {}", operation, node_id);
-    
-    // TODO: Implement specific relationship updates based on operation type
-    // Examples: "indent", "outdent", "move_up", "move_down", etc.
-    // This will require additional methods in core-logic ServiceContainer interface
-    
+
     Ok(())
 }
 
@@ -501,13 +455,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .setup(|_app| {
-            // Skip Tauri plugin logging since we already initialized fern logging
-
             log_service_init("Application State");
             log_service_ready("Application State");
 
             log::info!("NodeSpace Desktop initialized successfully");
-            log::debug!("Architecture: Desktop → ServiceContainer → Data Store + NLP Engine");
             Ok(())
         })
         .on_window_event(|_window, event| {
@@ -519,7 +470,6 @@ pub fn run() {
             greet,
             create_knowledge_node,
             update_node,
-            // get_node, // TODO: Enable once core-logic ServiceContainer has get_node method
             process_query,
             semantic_search,
             get_nodes_for_date,

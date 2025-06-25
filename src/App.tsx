@@ -10,11 +10,7 @@ import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
 
 function App() {
-  const [nodes, setNodes] = useState<BaseNode[]>(() => {
-    // Initialize with a single node if empty
-    const initialNode = new TextNode('Welcome to NodeSpace');
-    return [initialNode];
-  });
+  const [nodes, setNodes] = useState<BaseNode[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -82,7 +78,7 @@ function App() {
   };
 
   const addNode = () => {
-    const newNode = new TextNode('New node');
+    const newNode = new TextNode('');
     setNodes([...nodes, newNode]);
   };
 
@@ -167,18 +163,23 @@ function App() {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      console.log(`🔄 NS-39: Loading nodes for date: ${dateStr}`);
       const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
         dateStr: dateStr 
       });
       
-      console.log(`✅ NS-39: Loaded ${backendNodes.length} nodes from database`);
-      const frontendNodes = convertToBaseNodes(backendNodes);
-      setNodes(frontendNodes);
+      if (backendNodes.length === 0) {
+        // Create an empty node ready for content when no nodes exist for this date
+        const emptyNode = new TextNode('');
+        setNodes([emptyNode]);
+      } else {
+        const frontendNodes = convertToBaseNodes(backendNodes);
+        setNodes(frontendNodes);
+      }
     } catch (error) {
       console.error('Failed to load nodes for date:', error);
-      // Fallback to empty nodes on error
-      setNodes([]);
+      // Fallback to empty node ready for content on error
+      const emptyNode = new TextNode('');
+      setNodes([emptyNode]);
     } finally {
       setLoading(false);
     }
@@ -186,18 +187,14 @@ function App() {
 
   // Load nodes when date changes
   useEffect(() => {
-    // Temporarily disabled until ONNX migration is complete
-    // loadNodesForDate(selectedDate);
-    setLoading(false);
+    loadNodesForDate(selectedDate);
   }, [selectedDate, loadNodesForDate]);
 
   // Debounced auto-save for content changes
   const debouncedSaveContent = useCallback(
     debounce(async (nodeId: string, content: string) => {
       try {
-        console.log(`💾 NS-39: Auto-saving content for node ${nodeId}`);
         await invoke('update_node_content', { nodeId, content });
-        console.log(`✅ NS-39: Auto-saved content for node ${nodeId}`);
       } catch (error) {
         console.error('Failed to auto-save node content:', error);
       }
@@ -208,15 +205,7 @@ function App() {
   // Immediate save for structure changes including sibling relationships
   const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {
     try {
-      console.log(`🔄 NS-46: Saving structure change '${operation}' for node ${nodeId}`);
-      
-      // Handle sibling relationship operations
-      if (operation.includes('move_') || operation.includes('reorder')) {
-        console.log(`📝 NS-46: Processing sibling relationship change: ${operation}`);
-      }
-      
       await invoke('update_node_structure', { operation, nodeId });
-      console.log(`✅ NS-46: Saved structure change for node ${nodeId}`);
       
       // Reload nodes to reflect updated sibling relationships
       await loadNodesForDate(selectedDate);

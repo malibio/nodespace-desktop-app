@@ -24,6 +24,12 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
             ))
         })
         .level(log_level)
+        // Reduce verbosity of external crates
+        .level_for("hf_hub", log::LevelFilter::Warn)
+        .level_for("ureq", log::LevelFilter::Warn)
+        .level_for("rustls", log::LevelFilter::Warn)
+        .level_for("tokenizers", log::LevelFilter::Warn)
+        .level_for("fastembed", log::LevelFilter::Info)
         .chain(std::io::stdout())
         .chain(
             fern::Dispatch::new()

@@ -56,18 +56,25 @@ impl Default for AppState {
 async fn initialize_service_container() -> Result<Arc<ServiceContainer>, String> {
     log::info!("🚀 NS-39: Initializing real ServiceContainer with database integration");
 
-    // Initialize ServiceContainer with real database path
-    let service_container = ServiceContainer::new()
+    // DESIGN PRINCIPLE: Desktop app determines platform-specific paths
+    // Clean separation: Desktop App → ServiceContainer → DataStore + NLP Engine
+    let database_path = "/Users/malibio/nodespace/nodespace-data-store/data/sample.db";
+    let model_path = std::path::PathBuf::from("/Users/malibio/nodespace/nodespace-nlp-engine/models/gemma-3-1b-it-onnx/model.onnx");
+    
+    // ServiceContainer orchestrates services with injected configuration
+    let service_container = ServiceContainer::new_with_database_and_model_paths(
+        database_path,
+        model_path
+    )
         .await
         .map_err(|e| format!("Failed to initialize ServiceContainer: {}", e))?;
 
     log_service_init("Real ServiceContainer");
     log_service_ready("Real ServiceContainer");
 
-    log::info!("✅ NS-39: ServiceContainer initialized successfully");
-    log::info!("   - Connected to SurrealDB with marketing sample data");
-    log::info!("   - Architecture: Desktop → Core Logic → Data Store + NLP Engine");
-    log::info!("   - Real AI integration and database persistence active");
+    log::info!("ServiceContainer initialized successfully");
+    log::debug!("Connected to SurrealDB with sample data");
+    log::debug!("Architecture: Desktop → Core Logic → Data Store + NLP Engine");
 
     Ok(Arc::new(service_container))
 }
@@ -115,10 +122,7 @@ async fn create_knowledge_node(
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
-    log::info!(
-        "✅ NS-39: Created knowledge node {} with real ServiceContainer and database persistence",
-        node_id
-    );
+    log::debug!("Created knowledge node {}", node_id);
     Ok(node_id)
 }
 
@@ -152,10 +156,7 @@ async fn update_node(
         .await
         .map_err(|e| format!("Failed to update node: {}", e))?;
 
-    log::info!(
-        "✅ NS-39: Updated node {} with real ServiceContainer and database persistence",
-        node_id
-    );
+    log::debug!("Updated node {}", node_id);
     Ok(())
 }
 
@@ -208,7 +209,7 @@ async fn process_query(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    log::info!("🚀 NS-39: Processing RAG query with real AI and database: {}", question);
+    log::debug!("Processing RAG query: {}", question);
 
     // Use real ServiceContainer for RAG query processing
     let query_response = service_container
@@ -231,7 +232,7 @@ async fn process_query(
         confidence: query_response.confidence as f64,
     };
 
-    log::info!("✅ NS-39: RAG query processed with real AI and database persistence");
+    log::debug!("RAG query processed successfully");
     Ok(response)
 }
 
@@ -261,11 +262,7 @@ async fn semantic_search(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    log::info!(
-        "🔍 NS-39: Performing semantic search with real embeddings and database: {} (limit: {})",
-        query,
-        limit
-    );
+    log::debug!("Performing semantic search: {} (limit: {})", query, limit);
 
     // Use real ServiceContainer for semantic search
     let search_results = service_container
@@ -292,10 +289,7 @@ async fn semantic_search(
         })
         .collect();
 
-    log::info!(
-        "✅ NS-39: Semantic search completed with real AI embeddings and database, found {} results",
-        results.len()
-    );
+    log::debug!("Semantic search completed, found {} results", results.len());
     Ok(results)
 }
 
@@ -303,13 +297,13 @@ async fn semantic_search(
 
 #[tauri::command]
 async fn get_nodes_for_date(
-    date_str: String,
+    #[allow(non_snake_case)] dateStr: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<Node>, String> {
-    log_command("get_nodes_for_date", &format!("date: {}", date_str));
+    log_command("get_nodes_for_date", &format!("date: {}", dateStr));
 
     // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    let date = NaiveDate::parse_from_str(&dateStr, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
@@ -324,19 +318,29 @@ async fn get_nodes_for_date(
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 
-    log::info!("✅ NS-39: Retrieved {} nodes for date {} from database", nodes.len(), date_str);
+    log::debug!("Retrieved {} nodes for date {} from database", nodes.len(), dateStr);
+    
+    // Debug: Print first few node details if any exist
+    if !nodes.is_empty() {
+        log::debug!("First node preview: ID={:?}, Content length={}", 
+                   nodes[0].id, 
+                   nodes[0].content.as_str().map(|s| s.len()).unwrap_or(0));
+    } else {
+        log::debug!("No nodes found for date {} in database", dateStr);
+    }
+    
     Ok(nodes)
 }
 
 #[tauri::command]
 async fn navigate_to_date(
-    date_str: String,
+    #[allow(non_snake_case)] dateStr: String,
     state: State<'_, AppState>,
 ) -> Result<NavigationResult, String> {
-    log_command("navigate_to_date", &format!("date: {}", date_str));
+    log_command("navigate_to_date", &format!("date: {}", dateStr));
 
     // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    let date = NaiveDate::parse_from_str(&dateStr, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
@@ -352,23 +356,19 @@ async fn navigate_to_date(
         .await
         .map_err(|e| format!("Failed to navigate to date: {}", e))?;
 
-    log::info!(
-        "✅ NS-39: Navigated to date {} from database with {} nodes",
-        date_str,
-        result.nodes.len()
-    );
+    log::debug!("Navigated to date {} - {} nodes", dateStr, result.nodes.len());
     Ok(result)
 }
 
 #[tauri::command]
 async fn create_or_get_date_node(
-    date_str: String,
+    #[allow(non_snake_case)] dateStr: String,
     state: State<'_, AppState>,
 ) -> Result<DateNode, String> {
-    log_command("create_or_get_date_node", &format!("date: {}", date_str));
+    log_command("create_or_get_date_node", &format!("date: {}", dateStr));
 
     // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    let date = NaiveDate::parse_from_str(&dateStr, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
@@ -384,11 +384,7 @@ async fn create_or_get_date_node(
         .await
         .map_err(|e| format!("Failed to create or get date node: {}", e))?;
 
-    log::info!(
-        "✅ NS-39: Created/retrieved date node for {} from database with {} children",
-        date_str,
-        date_node.child_count
-    );
+    log::debug!("Created/retrieved date node for {} - {} children", dateStr, date_node.child_count);
     Ok(date_node)
 }
 
@@ -416,7 +412,7 @@ async fn update_node_content(
         .await
         .map_err(|e| format!("Failed to auto-save node content: {}", e))?;
 
-    log::info!("✅ NS-39: Auto-saved content for node {} to database", node_id);
+    log::debug!("Auto-saved content for node {}", node_id);
     Ok(())
 }
 
@@ -439,7 +435,7 @@ async fn update_node_structure(
     let _node_id_obj = NodeId::from_string(node_id.clone());
     
     // For now, log the structure change - real implementation would update relationships
-    log::info!("🔄 NS-39: Structure change '{}' for node {} - saving to database", operation, node_id);
+    log::debug!("Structure change '{}' for node {}", operation, node_id);
     
     // TODO: Implement specific relationship updates based on operation type
     // Examples: "indent", "outdent", "move_up", "move_down", etc.
@@ -471,10 +467,8 @@ pub fn run() {
             log_service_init("Application State");
             log_service_ready("Application State");
 
-            log::info!("🎉 NS-39 SUCCESS: NodeSpace Desktop with real ServiceContainer integration initialized");
-            log::info!("   ✅ Clean dependency boundary: Desktop → ServiceContainer → Data Store + NLP Engine");
-            log::info!("   ✅ Zero ML dependencies in desktop app");
-            log::info!("   ✅ Real AI processing and database persistence via ServiceContainer");
+            log::info!("NodeSpace Desktop initialized successfully");
+            log::debug!("Architecture: Desktop → ServiceContainer → Data Store + NLP Engine");
             Ok(())
         })
         .on_window_event(|_window, event| {

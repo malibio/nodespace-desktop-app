@@ -4,13 +4,17 @@ import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
 import DatePicker from 'react-datepicker';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
 
 function App() {
-  const [nodes, setNodes] = useState<BaseNode[]>([]);
+  const [nodes, setNodes] = useState<BaseNode[]>(() => {
+    // Initialize with a single node if empty
+    const initialNode = new TextNode('Welcome to NodeSpace');
+    return [initialNode];
+  });
   const [loading, setLoading] = useState<boolean>(true);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -22,6 +26,18 @@ function App() {
   const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
   
   const totalNodeCount = countAllNodes(nodes);
+  const handleCollapseChange = useCallback((nodeId: string, collapsed: boolean) => {
+    setCollapsedNodes(prev => {
+      const newSet = new Set(prev);
+      if (collapsed) {
+        newSet.add(nodeId);
+      } else {
+        newSet.delete(nodeId);
+      }
+      return newSet;
+    });
+  }, []);
+
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
@@ -33,6 +49,14 @@ function App() {
     onStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)
       saveStructureChange(operation, nodeId);
+    },
+    onSlashCommand: (type: string, currentNode: BaseNode) => {
+      console.log("Slash command:", type, currentNode);
+      // TODO: Handle slash commands (create new nodes, AI chat, etc.)
+    },
+    onEnterKey: (currentNode: BaseNode) => {
+      console.log("Enter key pressed:", currentNode);
+      // TODO: Handle enter key (create new sibling node)
     }
   };
 
@@ -42,18 +66,6 @@ function App() {
 
   const handleBlur = () => {
     setFocusedNodeId(null);
-  };
-
-  const handleCollapseChange = (nodeId: string, collapsed: boolean) => {
-    setCollapsedNodes(prev => {
-      const newSet = new Set(prev);
-      if (collapsed) {
-        newSet.add(nodeId);
-      } else {
-        newSet.delete(nodeId);
-      }
-      return newSet;
-    });
   };
 
   const handleRemoveNode = (node: BaseNode) => {
@@ -174,7 +186,9 @@ function App() {
 
   // Load nodes when date changes
   useEffect(() => {
-    loadNodesForDate(selectedDate);
+    // Temporarily disabled until ONNX migration is complete
+    // loadNodesForDate(selectedDate);
+    setLoading(false);
   }, [selectedDate, loadNodesForDate]);
 
   // Debounced auto-save for content changes
@@ -259,7 +273,13 @@ function App() {
 
       <NodeSpaceEditor
         nodes={nodes}
+        focusedNodeId={focusedNodeId}
         callbacks={callbacks}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onRemoveNode={handleRemoveNode}
+        collapsedNodes={collapsedNodes}
+        onCollapseChange={handleCollapseChange}
       />
     </div>
   );

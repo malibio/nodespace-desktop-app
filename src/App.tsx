@@ -4,7 +4,8 @@ import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
 import DatePicker from 'react-datepicker';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
+import { useTheme } from './hooks/useTheme';
 import "react-datepicker/dist/react-datepicker.css";
 import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
@@ -16,7 +17,7 @@ function App() {
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const { currentTheme, toggleTheme } = useTheme();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
@@ -228,7 +229,7 @@ function App() {
   }
 
   return (
-    <div className={`app-container ${isDarkMode ? 'ns-dark-mode' : ''}`}>
+    <div className={`app-container ${currentTheme === 'dark' ? 'ns-dark-mode' : ''}`}>
       <div className="app-header">
         <div className="date-navigation">
           <button onClick={() => navigateDate('prev')} className="nav-button">
@@ -252,8 +253,8 @@ function App() {
             ›
           </button>
         </div>
-        <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle">
-          {isDarkMode ? '☀️' : '🌙'}
+        <button onClick={toggleTheme} className="theme-toggle">
+          {currentTheme === 'dark' ? '☀️' : '🌙'}
         </button>
       </div>
 

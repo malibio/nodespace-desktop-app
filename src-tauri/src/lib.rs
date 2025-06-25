@@ -14,7 +14,7 @@ use crate::error::AppError;
 use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Local};
 use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation};
 use nodespace_core_types::{Node, NodeId};
 // NOTE: No direct data-store or nlp-engine imports - clean architecture boundary
@@ -103,12 +103,15 @@ async fn create_knowledge_node(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Convert metadata to serde_json::Value
-    let metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
+    // Extract date from metadata or use current date
+    let current_date = Local::now().format("%Y-%m-%d").to_string();
+    let date = metadata.get("date")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&current_date);
 
     // Use real ServiceContainer with database persistence
     let node_id = service_container
-        .create_knowledge_node(&content, metadata_json)
+        .create_text_node(&content, date)
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
@@ -317,8 +320,7 @@ async fn get_nodes_for_date(
     let service_container = service_guard.as_ref().unwrap();
 
     // Get nodes for the specified date using real database
-    let nodes = service_container
-        .get_nodes_for_date(date)
+    let nodes = DateNavigation::get_nodes_for_date(&**service_container, date)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 

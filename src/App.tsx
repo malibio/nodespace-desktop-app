@@ -157,26 +157,28 @@ function App() {
     return sortedNodes;
   };
 
-  // Load nodes for a specific date from database
+  // Load nodes for a specific date from database with hierarchical relationships
   const loadNodesForDate = useCallback(async (date: Date) => {
     try {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
+      const hierarchicalNodes = await invoke<any[]>('get_hierarchical_nodes_for_date', { 
         dateStr: dateStr 
       });
       
-      if (backendNodes.length === 0) {
+      if (hierarchicalNodes.length === 0) {
         // Create an empty node ready for content when no nodes exist for this date
         const emptyNode = new TextNode('');
         setNodes([emptyNode]);
       } else {
+        // Extract the node data from hierarchical structure and convert to BaseNodes
+        const backendNodes = hierarchicalNodes.map(hn => hn.node);
         const frontendNodes = convertToBaseNodes(backendNodes);
         setNodes(frontendNodes);
       }
     } catch (error) {
-      console.error('Failed to load nodes for date:', error);
+      console.error('Failed to load hierarchical nodes for date:', error);
       // Fallback to empty node ready for content on error
       const emptyNode = new TextNode('');
       setNodes([emptyNode]);

@@ -37,3 +37,8 @@ tauri-plugin-log = "2.0.0-rc"
 nodespace-core-types = { path = "../../nodespace-core-types" }
 # Full features enabled - unified Candle stack resolves Metal compilation issues
 nodespace-core-logic = { path = "../../nodespace-core-logic" }
+
+# Fix ort version compatibility issue (fastembed 4.9 + ort 2.0.0-rc.9 conflict)
+# Pin both ort and ort-sys to prevent API mismatches between rc versions
+ort = { version = "=2.0.0-rc.9", default-features = false }
+ort-sys = { version = "=2.0.0-rc.9", default-features = false }

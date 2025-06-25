@@ -15,7 +15,7 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
 use chrono::{NaiveDate, Local};
-use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation};
+use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation, HierarchicalNode};
 use nodespace_core_types::{Node, NodeId};
 // NOTE: No direct data-store or nlp-engine imports - clean architecture boundary
 
@@ -333,6 +333,45 @@ async fn get_nodes_for_date(
 }
 
 #[tauri::command]
+async fn get_hierarchical_nodes_for_date(
+    #[allow(non_snake_case)] dateStr: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<HierarchicalNode>, String> {
+    log_command("get_hierarchical_nodes_for_date", &format!("date: {}", dateStr));
+
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&dateStr, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+
+    // Get or initialize the ServiceContainer
+    let mut service_guard = state.service_container.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_service_container().await?);
+    }
+    let service_container = service_guard.as_ref().unwrap();
+
+    // Get hierarchical nodes for the specified date using real database
+    let hierarchical_nodes = DateNavigation::get_hierarchical_nodes_for_date(&**service_container, date)
+        .await
+        .map_err(|e| format!("Failed to get hierarchical nodes for date: {}", e))?;
+
+    log::debug!("Retrieved {} hierarchical nodes for date {} from database", hierarchical_nodes.len(), dateStr);
+    
+    // Debug: Print first few hierarchical node details if any exist
+    if !hierarchical_nodes.is_empty() {
+        log::debug!("First hierarchical node preview: ID={:?}, Parent={:?}, Children count={}, Depth={}", 
+                   hierarchical_nodes[0].node.id, 
+                   hierarchical_nodes[0].parent,
+                   hierarchical_nodes[0].children.len(),
+                   hierarchical_nodes[0].depth_level);
+    } else {
+        log::debug!("No hierarchical nodes found for date {} in database", dateStr);
+    }
+    
+    Ok(hierarchical_nodes)
+}
+
+#[tauri::command]
 async fn navigate_to_date(
     #[allow(non_snake_case)] dateStr: String,
     state: State<'_, AppState>,
@@ -484,6 +523,7 @@ pub fn run() {
             process_query,
             semantic_search,
             get_nodes_for_date,
+            get_hierarchical_nodes_for_date,
             navigate_to_date,
             create_or_get_date_node,
             update_node_content,

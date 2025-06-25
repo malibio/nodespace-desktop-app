@@ -1,0 +1,1 @@
+2025/06/25-06:13:03.853159 6183907328 [WARN] [db/db_impl/db_impl_open.cc:2075] DB::Open() failed: Corruption: While creating a new Db, wal_dir contains existing log file: : 000022.log

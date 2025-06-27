@@ -52,11 +52,11 @@ body,
 }
 
 .nav-button:hover {
-  background: #fafafa;
+  background: var(--ns-app-bg);
 }
 
 .ns-dark-mode .nav-button:hover {
-  background: #252f3e;
+  background: var(--ns-app-bg);
 }
 
 .date-display-container {
@@ -233,7 +233,7 @@ body,
 
 /* Dark theme CSS custom properties */
 .ns-dark-mode {
-  background-color: #1e2a3a;
+  background-color: #2a2a2a;              /* Unified with canvas for seamless appearance */
   color: #e5e5e5;
   
   /* NodeSpace core-ui dark mode overrides */

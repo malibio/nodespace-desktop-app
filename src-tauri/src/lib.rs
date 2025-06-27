@@ -13,13 +13,16 @@ use tokio::sync::Mutex;
 use crate::error::AppError;
 use crate::logging::*;
 
-// Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
+// Import real NodeSpace types - clean dependency boundary with proper dependency injection
 use chrono::NaiveDate;
-use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation};
+use nodespace_core_logic::{
+    CoreLogic, DateNavigation, DateNode, NavigationResult, NodeSpaceService,
+};
 use nodespace_core_types::{Node, NodeId};
-// NOTE: No direct data-store or nlp-engine imports - clean architecture boundary
+use nodespace_data_store::LanceDataStore;
+use nodespace_nlp_engine::LocalNLPEngine;
 
-// Real ServiceContainer integration - no more demo traits needed
+// NodeSpaceService integration with dependency injection pattern
 
 // Additional response types for Tauri commands
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,40 +39,50 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-// Real ServiceContainer integration - replaced demo implementation
+// NodeSpaceService integration with dependency injection
 
-
-// Application state with real ServiceContainer
+// Application state with NodeSpaceService
 pub struct AppState {
-    pub service_container: Arc<Mutex<Option<Arc<ServiceContainer>>>>,
+    pub nodespace_service: Arc<Mutex<Option<Arc<NodeSpaceService<LanceDataStore, LocalNLPEngine>>>>>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            service_container: Arc::new(Mutex::new(None)),
+            nodespace_service: Arc::new(Mutex::new(None)),
         }
     }
 }
 
-// ServiceContainer initialization helper - real integration
-async fn initialize_service_container() -> Result<Arc<ServiceContainer>, String> {
-    log::info!("🚀 NS-39: Initializing real ServiceContainer with database integration");
+// NodeSpaceService initialization helper with dependency injection
+async fn initialize_nodespace_service() -> Result<Arc<NodeSpaceService<LanceDataStore, LocalNLPEngine>>, String> {
+    log::info!("🚀 Initializing NodeSpaceService with dependency injection");
 
-    // Initialize ServiceContainer with real database path
-    let service_container = ServiceContainer::new()
+    // Initialize data store
+    let data_store = LanceDataStore::new("./data/lance_db")
         .await
-        .map_err(|e| format!("Failed to initialize ServiceContainer: {}", e))?;
+        .map_err(|e| format!("Failed to initialize data store: {}", e))?;
 
-    log_service_init("Real ServiceContainer");
-    log_service_ready("Real ServiceContainer");
+    // Initialize NLP engine
+    let nlp_engine = LocalNLPEngine::new();
 
-    log::info!("✅ NS-39: ServiceContainer initialized successfully");
-    log::info!("   - Connected to SurrealDB with marketing sample data");
-    log::info!("   - Architecture: Desktop → Core Logic → Data Store + NLP Engine");
+    // Create service with injected dependencies
+    let service = NodeSpaceService::new(data_store, nlp_engine);
+
+    // Initialize the service
+    service.initialize()
+        .await
+        .map_err(|e| format!("Failed to initialize service: {}", e))?;
+
+    log_service_init("NodeSpaceService");
+    log_service_ready("NodeSpaceService");
+
+    log::info!("✅ NodeSpaceService initialized successfully");
+    log::info!("   - Connected to LanceDB with data persistence");
+    log::info!("   - Architecture: Desktop → NodeSpaceService → DataStore + NLPEngine");
     log::info!("   - Real AI integration and database persistence active");
 
-    Ok(Arc::new(service_container))
+    Ok(Arc::new(service))
 }
 
 // Tauri commands for MVP functionality
@@ -96,24 +109,22 @@ async fn create_knowledge_node(
         return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
     }
 
-    // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
-    // Convert metadata to serde_json::Value
-    let metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
-
-    // Use real ServiceContainer with database persistence
-    let node_id = service_container
-        .create_knowledge_node(&content, metadata_json)
+    // Convert metadata for service call
+    let metadata_value = serde_json::Value::Object(metadata.into_iter().collect());
+    let node_id = service
+        .create_knowledge_node(&content, metadata_value)
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
     log::info!(
-        "✅ NS-39: Created knowledge node {} with real ServiceContainer and database persistence",
+        "✅ NS-39: Created knowledge node {} with NodeSpaceService and database persistence",
         node_id
     );
     Ok(node_id)
@@ -135,16 +146,16 @@ async fn update_node(
     }
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     // Use real ServiceContainer to update node in place
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
-    service_container
+
+    service
         .update_node(&node_id_obj, &content)
         .await
         .map_err(|e| format!("Failed to update node: {}", e))?;
@@ -162,15 +173,15 @@ async fn update_node(
 //     log_command("get_node", &format!("node_id: {}", node_id));
 //
 //     // Get or initialize the ServiceContainer
-//     let mut service_guard = state.service_container.lock().await;
+//     let mut service_guard = state.nodespace_service.lock().await;
 //     if service_guard.is_none() {
-//         *service_guard = Some(initialize_service_container().await?);
+//         *service_guard = Some(initialize_nodespace_service().await?);
 //     }
-//     let service_container = service_guard.as_ref().unwrap();
+//     let service = service_guard.as_ref().unwrap();
 //
 //     // Use real ServiceContainer through core-logic interface (clean architecture)
 //     let node_id_obj = NodeId::from_string(node_id.clone());
-//     let result = service_container
+//     let result = service
 //         .get_node(&node_id_obj)
 //         .await
 //         .map_err(|e| format!("Failed to get node: {}", e))?;
@@ -199,26 +210,29 @@ async fn process_query(
     }
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
-    log::info!("🚀 NS-39: Processing RAG query with real AI and database: {}", question);
+    log::info!(
+        "🚀 NS-39: Processing RAG query with real AI and database: {}",
+        question
+    );
 
     // Use real ServiceContainer for RAG query processing
-    let query_response = service_container
+    let query_response = service
         .process_query(&question)
         .await
         .map_err(|e| format!("Failed to process query: {}", e))?;
 
     // Search for related nodes as sources using real database
-    let search_results = service_container
+    let search_results = service
         .semantic_search(&question, 5)
         .await
         .unwrap_or_default();
-    
+
     let source_nodes: Vec<Node> = search_results.into_iter().map(|r| r.node).collect();
 
     // Convert to Tauri response format
@@ -252,11 +266,11 @@ async fn semantic_search(
     }
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     log::info!(
         "🔍 NS-39: Performing semantic search with real embeddings and database: {} (limit: {})",
@@ -265,7 +279,7 @@ async fn semantic_search(
     );
 
     // Use real ServiceContainer for semantic search
-    let search_results = service_container
+    let search_results = service
         .semantic_search(&query, limit)
         .await
         .map_err(|e| format!("Failed to perform semantic search: {}", e))?;
@@ -309,20 +323,23 @@ async fn get_nodes_for_date(
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
-    // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
-    // Get nodes for the specified date using real database
-    let nodes = service_container
-        .get_nodes_for_date(date)
+    // Get nodes for the specified date using NodeSpaceService
+    let nodes = service.get_nodes_for_date(date)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 
-    log::info!("✅ NS-39: Retrieved {} nodes for date {} from database", nodes.len(), date_str);
+    log::info!(
+        "✅ NS-39: Retrieved {} nodes for date {} from database",
+        nodes.len(),
+        date_str
+    );
     Ok(nodes)
 }
 
@@ -338,14 +355,14 @@ async fn navigate_to_date(
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     // Navigate to the specified date using real database
-    let result = service_container
+    let result = service
         .navigate_to_date(date)
         .await
         .map_err(|e| format!("Failed to navigate to date: {}", e))?;
@@ -370,14 +387,14 @@ async fn create_or_get_date_node(
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     // Create or get the date node using real database
-    let date_node = service_container
+    let date_node = service
         .create_or_get_date_node(date)
         .await
         .map_err(|e| format!("Failed to create or get date node: {}", e))?;
@@ -397,24 +414,30 @@ async fn update_node_content(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_content", &format!("node_id: {}, content_len: {}", node_id, content.len()));
+    log_command(
+        "update_node_content",
+        &format!("node_id: {}, content_len: {}", node_id, content.len()),
+    );
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service_container = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     // Auto-save content changes to database
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
-    service_container
+
+    service
         .update_node(&node_id_obj, &content)
         .await
         .map_err(|e| format!("Failed to auto-save node content: {}", e))?;
 
-    log::info!("✅ NS-39: Auto-saved content for node {} to database", node_id);
+    log::info!(
+        "✅ NS-39: Auto-saved content for node {} to database",
+        node_id
+    );
     Ok(())
 }
 
@@ -424,25 +447,32 @@ async fn update_node_structure(
     node_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_structure", &format!("operation: {}, node_id: {}", operation, node_id));
+    log_command(
+        "update_node_structure",
+        &format!("operation: {}, node_id: {}", operation, node_id),
+    );
 
     // Get or initialize the ServiceContainer
-    let mut service_guard = state.service_container.lock().await;
+    let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
-        *service_guard = Some(initialize_service_container().await?);
+        *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let _service_container = service_guard.as_ref().unwrap();
+    let _service = service_guard.as_ref().unwrap();
 
     // Immediately save structure changes (parent/child relationships)
     let _node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     // For now, log the structure change - real implementation would update relationships
-    log::info!("🔄 NS-39: Structure change '{}' for node {} - saving to database", operation, node_id);
-    
+    log::info!(
+        "🔄 NS-39: Structure change '{}' for node {} - saving to database",
+        operation,
+        node_id
+    );
+
     // TODO: Implement specific relationship updates based on operation type
     // Examples: "indent", "outdent", "move_up", "move_down", etc.
     // This will require additional methods in core-logic ServiceContainer interface
-    
+
     Ok(())
 }
 

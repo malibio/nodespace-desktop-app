@@ -229,6 +229,7 @@ body,
   --ns-header-bg: #fafafa;              /* Unified with canvas for seamless appearance */
   --ns-header-border: #e5e5e5;
   --ns-text-secondary: #666;
+  --ns-dark-bg: #fafafa;               /* For core-ui editor container unified appearance */
 }
 
 /* Dark theme CSS custom properties */
@@ -247,6 +248,7 @@ body,
   --ns-header-bg: #2a2a2a;              /* Unified with canvas for seamless appearance */
   --ns-header-border: #3a3a3a;
   --ns-text-secondary: #999;
+  --ns-dark-bg: #2a2a2a;               /* For core-ui editor container unified appearance */
 }
 
 

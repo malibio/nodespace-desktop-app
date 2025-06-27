@@ -1,0 +1,37 @@
+repos:
+  - repo: local
+    hooks:
+      - id: rust-check
+        name: Rust cargo check
+        entry: bash -c 'cd src-tauri && cargo check --all-targets'
+        language: system
+        files: '^src-tauri/.*\.rs$'
+        pass_filenames: false
+        
+      - id: rust-clippy
+        name: Rust clippy
+        entry: bash -c 'cd src-tauri && cargo clippy --all-targets -- -D warnings'
+        language: system
+        files: '^src-tauri/.*\.rs$'
+        pass_filenames: false
+        
+      - id: rust-fmt-check
+        name: Rust format check
+        entry: bash -c 'cd src-tauri && cargo fmt --all -- --check'
+        language: system
+        files: '^src-tauri/.*\.rs$'
+        pass_filenames: false
+        
+      - id: typescript-check
+        name: TypeScript check
+        entry: npm run type-check
+        language: system
+        files: '^src/.*\.(ts|tsx)$'
+        pass_filenames: false
+        
+      - id: npm-test
+        name: Run npm tests
+        entry: npm test -- --run
+        language: system
+        files: '^src/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false

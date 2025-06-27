@@ -224,7 +224,7 @@ body,
   --ns-canvas-bg: #fafafa;             /* Canvas/editor background for light mode */
   
   /* Desktop app theme variables */
-  --ns-app-bg: #ffffff;
+  --ns-app-bg: #fafafa;                /* Unified with canvas for seamless appearance */
   --ns-app-text: #1a1a1a;
   --ns-header-bg: #fafafa;
   --ns-header-border: #e5e5e5;
@@ -242,7 +242,7 @@ body,
   --ns-canvas-bg: #2a2a2a;             /* Canvas/editor background for dark mode */
   
   /* Desktop app dark theme variables */
-  --ns-app-bg: #1e2a3a;
+  --ns-app-bg: #2a2a2a;                /* Unified with canvas for seamless appearance */
   --ns-app-text: #e5e5e5;
   --ns-header-bg: #1e2a3a;
   --ns-header-border: #3a3a3a;

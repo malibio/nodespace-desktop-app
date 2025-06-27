@@ -221,6 +221,7 @@ body,
   /* NodeSpace core-ui overrides */
   --ns-circle-color: #94A2B8;           /* Inner circle color */
   --ns-parent-border-color: #C9D0DB;    /* Outer circle color for parents */
+  --ns-canvas-bg: #fafafa;             /* Canvas/editor background for light mode */
   
   /* Desktop app theme variables */
   --ns-app-bg: #ffffff;
@@ -238,6 +239,7 @@ body,
   /* NodeSpace core-ui dark mode overrides */
   --ns-circle-color: #64748b;           /* Darker inner circle for dark mode */
   --ns-parent-border-color: #475569;    /* Darker outer circle for dark mode */
+  --ns-canvas-bg: #2a2a2a;             /* Canvas/editor background for dark mode */
   
   /* Desktop app dark theme variables */
   --ns-app-bg: #1e2a3a;

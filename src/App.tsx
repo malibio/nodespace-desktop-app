@@ -287,6 +287,7 @@ function App() {
         onRemoveNode={handleRemoveNode}
         collapsedNodes={collapsedNodes}
         onCollapseChange={handleCollapseChange}
+        className={isDarkMode ? 'ns-dark-mode' : ''}
       />
     </div>
   );

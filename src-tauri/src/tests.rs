@@ -19,6 +19,8 @@ impl TestUtils {
             metadata: Some(metadata),
             created_at: now.clone(),
             updated_at: now,
+            next_sibling: None,
+            previous_sibling: None,
         }
     }
 

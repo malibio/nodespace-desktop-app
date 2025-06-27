@@ -35,3 +35,21 @@ src-tauri/gen/
 # Build outputs
 build/
 out/
+
+# Database files (never commit)
+*.db/
+*.sst
+*.log
+data/
+.fastembed_cache/
+src-tauri/.fastembed_cache/
+src-tauri/data/
+
+# ML Models and caches
+models/
+*.onnx
+*.bin
+*.safetensors
+
+# Lock files from model downloads
+*.lock

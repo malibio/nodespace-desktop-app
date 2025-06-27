@@ -15,7 +15,9 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary (no ML imports in desktop app)
 use chrono::NaiveDate;
-use nodespace_core_logic::{ServiceContainer, DateNode, NavigationResult, CoreLogic, DateNavigation};
+use nodespace_core_logic::{
+    CoreLogic, DateNavigation, DateNode, NavigationResult, ServiceContainer,
+};
 use nodespace_core_types::{Node, NodeId};
 // NOTE: No direct data-store or nlp-engine imports - clean architecture boundary
 
@@ -37,7 +39,6 @@ pub struct SearchResult {
 }
 
 // Real ServiceContainer integration - replaced demo implementation
-
 
 // Application state with real ServiceContainer
 pub struct AppState {
@@ -103,12 +104,16 @@ async fn create_knowledge_node(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    // Convert metadata to serde_json::Value
-    let metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
+    // Convert metadata to serde_json::Value (currently unused but may be needed for future enhancements)
+    let _metadata_json = serde_json::Value::Object(metadata.into_iter().collect());
 
     // Use real ServiceContainer with database persistence
+    let today = chrono::Utc::now()
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
     let node_id = service_container
-        .create_knowledge_node(&content, metadata_json)
+        .create_text_node(&content, &today)
         .await
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
@@ -143,7 +148,7 @@ async fn update_node(
 
     // Use real ServiceContainer to update node in place
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     service_container
         .update_node(&node_id_obj, &content)
         .await
@@ -205,7 +210,10 @@ async fn process_query(
     }
     let service_container = service_guard.as_ref().unwrap();
 
-    log::info!("🚀 NS-39: Processing RAG query with real AI and database: {}", question);
+    log::info!(
+        "🚀 NS-39: Processing RAG query with real AI and database: {}",
+        question
+    );
 
     // Use real ServiceContainer for RAG query processing
     let query_response = service_container
@@ -218,7 +226,7 @@ async fn process_query(
         .semantic_search(&question, 5)
         .await
         .unwrap_or_default();
-    
+
     let source_nodes: Vec<Node> = search_results.into_iter().map(|r| r.node).collect();
 
     // Convert to Tauri response format
@@ -305,8 +313,8 @@ async fn get_nodes_for_date(
 ) -> Result<Vec<Node>, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
 
-    // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    // Parse the date string for validation
+    let _date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the ServiceContainer
@@ -317,12 +325,15 @@ async fn get_nodes_for_date(
     let service_container = service_guard.as_ref().unwrap();
 
     // Get nodes for the specified date using real database
-    let nodes = service_container
-        .get_nodes_for_date(date)
+    let nodes = CoreLogic::get_nodes_for_date(service_container.as_ref(), &date_str)
         .await
         .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
 
-    log::info!("✅ NS-39: Retrieved {} nodes for date {} from database", nodes.len(), date_str);
+    log::info!(
+        "✅ NS-39: Retrieved {} nodes for date {} from database",
+        nodes.len(),
+        date_str
+    );
     Ok(nodes)
 }
 
@@ -397,7 +408,10 @@ async fn update_node_content(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_content", &format!("node_id: {}, content_len: {}", node_id, content.len()));
+    log_command(
+        "update_node_content",
+        &format!("node_id: {}, content_len: {}", node_id, content.len()),
+    );
 
     // Get or initialize the ServiceContainer
     let mut service_guard = state.service_container.lock().await;
@@ -408,13 +422,16 @@ async fn update_node_content(
 
     // Auto-save content changes to database
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     service_container
         .update_node(&node_id_obj, &content)
         .await
         .map_err(|e| format!("Failed to auto-save node content: {}", e))?;
 
-    log::info!("✅ NS-39: Auto-saved content for node {} to database", node_id);
+    log::info!(
+        "✅ NS-39: Auto-saved content for node {} to database",
+        node_id
+    );
     Ok(())
 }
 
@@ -424,7 +441,10 @@ async fn update_node_structure(
     node_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    log_command("update_node_structure", &format!("operation: {}, node_id: {}", operation, node_id));
+    log_command(
+        "update_node_structure",
+        &format!("operation: {}, node_id: {}", operation, node_id),
+    );
 
     // Get or initialize the ServiceContainer
     let mut service_guard = state.service_container.lock().await;
@@ -435,14 +455,18 @@ async fn update_node_structure(
 
     // Immediately save structure changes (parent/child relationships)
     let _node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     // For now, log the structure change - real implementation would update relationships
-    log::info!("🔄 NS-39: Structure change '{}' for node {} - saving to database", operation, node_id);
-    
+    log::info!(
+        "🔄 NS-39: Structure change '{}' for node {} - saving to database",
+        operation,
+        node_id
+    );
+
     // TODO: Implement specific relationship updates based on operation type
     // Examples: "indent", "outdent", "move_up", "move_down", etc.
     // This will require additional methods in core-logic ServiceContainer interface
-    
+
     Ok(())
 }
 

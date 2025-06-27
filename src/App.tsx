@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { TextNode, BaseNode, TaskNode } from 'nodespace-core-ui';
+import { TextNode, BaseNode, TaskNode, AIChatNode } from 'nodespace-core-ui';
 import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
 import { countAllNodes } from 'nodespace-core-ui';
@@ -46,17 +46,9 @@ function App() {
       // Auto-save content changes with debouncing
       debouncedSaveContent(nodeId, content);
     },
-    onStructureChange: (operation: string, nodeId: string) => {
+    onNodeStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)
       saveStructureChange(operation, nodeId);
-    },
-    onSlashCommand: (type: string, currentNode: BaseNode) => {
-      console.log("Slash command:", type, currentNode);
-      // TODO: Handle slash commands (create new nodes, AI chat, etc.)
-    },
-    onEnterKey: (currentNode: BaseNode) => {
-      console.log("Enter key pressed:", currentNode);
-      // TODO: Handle enter key (create new sibling node)
     }
   };
 
@@ -115,7 +107,22 @@ function App() {
     
     return sortedNodes.map(nodeData => {
       const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
-      const node = new TextNode(content);
+      
+      // Determine node type from metadata or default to TextNode
+      const nodeType = nodeData.metadata?.nodeType || 'text';
+      
+      let node: BaseNode;
+      switch (nodeType) {
+        case 'ai-chat':
+          node = new AIChatNode(content);
+          break;
+        case 'task':
+          node = new TaskNode(content);
+          break;
+        default:
+          node = new TextNode(content);
+      }
+      
       // Set the ID to match backend
       (node as any).id = nodeData.id;
       // Store sibling pointer information for UI ordering

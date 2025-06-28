@@ -24,6 +24,11 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
             ))
         })
         .level(log_level)
+        // Filter out noisy LanceDB internal logs
+        .level_for("lance_file::v2::reader", log::LevelFilter::Warn)
+        .level_for("lance_file::v2::writer", log::LevelFilter::Warn)
+        .level_for("lance_file", log::LevelFilter::Warn)
+        .level_for("lancedb", log::LevelFilter::Info)
         .chain(std::io::stdout())
         .chain(
             fern::Dispatch::new()

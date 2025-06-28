@@ -10,12 +10,9 @@ import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
 
 function App() {
-  const [nodes, setNodes] = useState<BaseNode[]>(() => {
-    // Initialize with a single node if empty
-    const initialNode = new TextNode('Welcome to NodeSpace');
-    return [initialNode];
-  });
+  const [nodes, setNodes] = useState<BaseNode[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [hasUserEdits, setHasUserEdits] = useState<boolean>(false);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   
@@ -43,6 +40,8 @@ function App() {
       setNodes(newNodes);
     },
     onNodeChange: (nodeId: string, content: string) => {
+      // Track that user has made edits
+      setHasUserEdits(true);
       // Auto-save content changes with debouncing
       debouncedSaveContent(nodeId, content);
     },
@@ -73,9 +72,27 @@ function App() {
     }
   };
 
-  const addNode = () => {
-    const newNode = new TextNode('New node');
-    setNodes([...nodes, newNode]);
+  const addNode = async () => {
+    try {
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      const metadata = {
+        created_date: dateStr,
+        nodeType: "text"
+      };
+      
+      await invoke<string>('create_knowledge_node', { 
+        content: 'New node', 
+        metadata: metadata 
+      });
+      
+      // Reload to show the new node with proper backend ID
+      loadNodesForDate(selectedDate);
+    } catch (error) {
+      console.error('❌ Failed to create new node:', error);
+      // Fallback to frontend-only node
+      const newNode = new TextNode('New node');
+      setNodes([...nodes, newNode]);
+    }
   };
 
   const navigateDate = (direction: 'prev' | 'next') => {
@@ -100,13 +117,22 @@ function App() {
     });
   };
 
-  // Convert backend Node data to frontend BaseNode instances
+  // Convert backend Node data to frontend BaseNode instances with proper hierarchy
   const convertToBaseNodes = (backendNodes: any[]): BaseNode[] => {
-    // Sort nodes by sibling order for proper sequence display
-    const sortedNodes = sortNodesBySiblingOrder(backendNodes);
+    // Step 1: Create all nodes as individual instances
+    const nodeMap = new Map<string, BaseNode>();
+    const parentChildMap = new Map<string, string[]>(); // parent_id -> [child_ids]
     
-    return sortedNodes.map(nodeData => {
+    backendNodes.forEach((nodeData) => {
       const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
+      
+      // Skip pure date header nodes (like "# June 27, 2025") but keep content nodes that start with #
+      if (content.trim().startsWith('# ') && 
+          (content.includes('June') || content.includes('July') || content.includes('August')) && 
+          (content.includes('2025') || content.includes('2024')) &&
+          content.length < 50) { // Short date headers only
+        return;
+      }
       
       // Determine node type from metadata or default to TextNode
       const nodeType = nodeData.metadata?.nodeType || 'text';
@@ -114,22 +140,92 @@ function App() {
       let node: BaseNode;
       switch (nodeType) {
         case 'ai-chat':
-          node = new AIChatNode(content);
+          node = new AIChatNode(content, nodeData.id);
           break;
         case 'task':
-          node = new TaskNode(content);
+          node = new TaskNode(content, nodeData.id);
           break;
         default:
-          node = new TextNode(content);
+          node = new TextNode(content, nodeData.id);
       }
-      
-      // Set the ID to match backend
-      (node as any).id = nodeData.id;
       // Store sibling pointer information for UI ordering
       (node as any).next_sibling = nodeData.next_sibling;
       (node as any).previous_sibling = nodeData.previous_sibling;
-      return node;
+      
+      nodeMap.set(nodeData.id, node);
+      
+      // Build parent-child mapping
+      const parentId = nodeData.metadata?.parent_id;
+      if (parentId) {
+        if (!parentChildMap.has(parentId)) {
+          parentChildMap.set(parentId, []);
+        }
+        parentChildMap.get(parentId)!.push(nodeData.id);
+      }
     });
+    
+    // Step 2: Build the hierarchy by adding children to parents
+    parentChildMap.forEach((childIds, parentId) => {
+      const parentNode = nodeMap.get(parentId);
+      if (parentNode) {
+        // Sort children by sibling order
+        const sortedChildIds = sortChildrenBySiblingOrder(childIds, nodeMap);
+        
+        sortedChildIds.forEach(childId => {
+          const childNode = nodeMap.get(childId);
+          if (childNode) {
+            parentNode.addChild(childNode);
+          }
+        });
+      }
+    });
+    
+    // Step 3: Return only root nodes (nodes without parents in current set)
+    const rootNodes: BaseNode[] = [];
+    
+    nodeMap.forEach((node, nodeId) => {
+      // Check if this node has a parent in our current node set
+      const parentId = backendNodes.find(n => n.id === nodeId)?.metadata?.parent_id;
+      const hasParentInCurrentSet = parentId && nodeMap.has(parentId);
+      
+      if (!hasParentInCurrentSet) {
+        rootNodes.push(node);
+      }
+    });
+    
+    return rootNodes;
+  };
+
+  // Helper function to sort children by sibling order
+  const sortChildrenBySiblingOrder = (childIds: string[], nodeMap: Map<string, BaseNode>): string[] => {
+    if (childIds.length <= 1) return childIds;
+    
+    // Find the first child (one with no previous_sibling)
+    const firstChildId = childIds.find(childId => {
+      const node = nodeMap.get(childId);
+      return !(node as any).previous_sibling;
+    });
+    
+    if (!firstChildId) return childIds; // No clear ordering, return as-is
+    
+    // Build the ordered sequence
+    const ordered: string[] = [];
+    let currentId: string | undefined = firstChildId;
+    
+    while (currentId && childIds.includes(currentId)) {
+      ordered.push(currentId);
+      const currentNode = nodeMap.get(currentId);
+      currentId = (currentNode as any).next_sibling;
+    }
+    
+    // Add any remaining children that weren't in the sibling chain
+    childIds.forEach(id => {
+      if (!ordered.includes(id)) {
+        ordered.push(id);
+      }
+    });
+    
+    return ordered;
   };
 
   // Sort nodes by sibling pointer relationships for proper sequence display
@@ -174,63 +270,88 @@ function App() {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      console.log(`🔄 NS-39: Loading nodes for date: ${dateStr}`);
       const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
         dateStr: dateStr 
       });
       
-      console.log(`✅ NS-39: Loaded ${backendNodes.length} nodes from database`);
       const frontendNodes = convertToBaseNodes(backendNodes);
-      setNodes(frontendNodes);
+      
+      // Only update nodes if user hasn't started editing (to prevent overwriting user input)
+      if (!hasUserEdits) {
+        if (frontendNodes.length === 0) {
+          // Create and save an empty node to the backend first
+          createEmptyNodeForDate(selectedDate);
+        } else {
+          setNodes(frontendNodes);
+        }
+      }
     } catch (error) {
       console.error('Failed to load nodes for date:', error);
-      // Fallback to empty nodes on error
-      setNodes([]);
+      // Fallback to empty text node on error so user can start typing
+      const emptyNode = new TextNode('');
+      setNodes([emptyNode]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Load nodes when date changes
+  // Create a backend-persisted empty node for a date
+  const createEmptyNodeForDate = useCallback(async (date: Date) => {
+    try {
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const metadata = {
+        created_date: dateStr,
+        nodeType: "text"
+      };
+      
+      const nodeId = await invoke<string>('create_knowledge_node', { 
+        content: '', 
+        metadata: metadata 
+      });
+      
+      // Now reload the data to show the new empty node
+      loadNodesForDate(date);
+    } catch (error) {
+      console.error('❌ Failed to create empty node:', error);
+      // Fallback to frontend-only empty node
+      const emptyNode = new TextNode('');
+      setNodes([emptyNode]);
+    }
+  }, [loadNodesForDate]);
+
+  // Load nodes when date changes with slight delay to allow backend persistence
   useEffect(() => {
-    // Temporarily disabled until ONNX migration is complete
-    // loadNodesForDate(selectedDate);
-    setLoading(false);
+    // Reset edit tracking when changing dates
+    setHasUserEdits(false);
+    
+    const timer = setTimeout(() => {
+      loadNodesForDate(selectedDate);
+    }, 50); // Small delay to ensure backend writes complete
+    
+    return () => clearTimeout(timer);
   }, [selectedDate, loadNodesForDate]);
 
   // Debounced auto-save for content changes
   const debouncedSaveContent = useCallback(
     debounce(async (nodeId: string, content: string) => {
       try {
-        console.log(`💾 NS-39: Auto-saving content for node ${nodeId}`);
         await invoke('update_node_content', { nodeId, content });
-        console.log(`✅ NS-39: Auto-saved content for node ${nodeId}`);
       } catch (error) {
-        console.error('Failed to auto-save node content:', error);
+        console.error('❌ Failed to auto-save node content:', error);
       }
-    }, 500), // 500ms delay
+    }, 500), // 500ms debounce for efficient batching
     []
   );
 
   // Immediate save for structure changes including sibling relationships
   const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {
     try {
-      console.log(`🔄 NS-46: Saving structure change '${operation}' for node ${nodeId}`);
-      
-      // Handle sibling relationship operations
-      if (operation.includes('move_') || operation.includes('reorder')) {
-        console.log(`📝 NS-46: Processing sibling relationship change: ${operation}`);
-      }
-      
       await invoke('update_node_structure', { operation, nodeId });
-      console.log(`✅ NS-46: Saved structure change for node ${nodeId}`);
-      
-      // Reload nodes to reflect updated sibling relationships
-      await loadNodesForDate(selectedDate);
     } catch (error) {
       console.error('Failed to save structure change:', error);
     }
-  }, [selectedDate, loadNodesForDate]);
+  }, []);
 
   // Helper function for debouncing
   function debounce<T extends (...args: any[]) => any>(
@@ -289,6 +410,7 @@ function App() {
         onCollapseChange={handleCollapseChange}
         className={isDarkMode ? 'ns-dark-mode' : ''}
       />
+      
     </div>
   );
 }

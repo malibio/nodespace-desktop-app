@@ -124,7 +124,16 @@ function App() {
     const parentChildMap = new Map<string, string[]>(); // parent_id -> [child_ids]
     
     backendNodes.forEach((nodeData) => {
-      const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
+      // Content from backend is stored as JSON string, parse it if needed
+      let content = nodeData.content;
+      if (typeof content === 'string' && content.startsWith('"') && content.endsWith('"')) {
+        try {
+          content = JSON.parse(content);
+        } catch (e) {
+          // If parsing fails, use the string as-is
+        }
+      }
+      content = typeof content === 'string' ? content : JSON.stringify(content);
       
       // Skip pure date header nodes (like "# June 27, 2025") but keep content nodes that start with #
       if (content.trim().startsWith('# ') && 

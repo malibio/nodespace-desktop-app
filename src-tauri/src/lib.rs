@@ -39,6 +39,36 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
+// ADR-015: Image processing response structure for Core-UI integration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageData {
+    pub file_path: String,
+    pub metadata: ImageMetadata,
+    pub embeddings: Vec<f32>,
+    pub blob_url: String,
+    pub dimensions: (u32, u32),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageMetadata {
+    pub filename: String,
+    pub mime_type: String,
+    pub file_size: u64,
+    pub width: u32,
+    pub height: u32,
+    pub exif_data: Option<serde_json::Value>,
+    pub ai_description: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultimodalSearchConfig {
+    pub semantic_weight: f32,
+    pub include_images: bool,
+    pub max_results: usize,
+    pub min_similarity_threshold: f32,
+}
+
 // NodeSpaceService integration with dependency injection
 
 // Application state with NodeSpaceService
@@ -482,6 +512,215 @@ async fn get_today_date() -> Result<String, String> {
     Ok(today.format("%Y-%m-%d").to_string())
 }
 
+// ADR-015: Multimodal file processing commands for Core-UI integration
+
+#[tauri::command]
+async fn create_image_node(
+    state: State<'_, AppState>,
+) -> Result<ImageData, String> {
+    log_command("create_image_node", "opening file dialog");
+
+    // 1. Open OS file dialog for image selection
+    let file_dialog = tauri_plugin_dialog::FileDialogBuilder::new()
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"])
+        .set_title("Select Image File");
+
+    let file_path = file_dialog.pick_file()
+        .await
+        .ok_or("No file selected")?
+        .path()
+        .to_string_lossy()
+        .to_string();
+
+    process_image_file(file_path, state).await
+}
+
+#[tauri::command]
+async fn process_dropped_files(
+    file_paths: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ImageData>, String> {
+    log_command("process_dropped_files", &format!("processing {} files", file_paths.len()));
+
+    let mut results = Vec::new();
+    
+    for file_path in file_paths {
+        // Only process image files
+        if is_image_file(&file_path) {
+            match process_image_file(file_path, &state).await {
+                Ok(image_data) => results.push(image_data),
+                Err(e) => log::warn!("Failed to process image file: {}", e),
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+async fn multimodal_search(
+    query: String,
+    config: MultimodalSearchConfig,
+    state: State<'_, AppState>,
+) -> Result<Vec<SearchResult>, String> {
+    log_command("multimodal_search", &format!("query: {}, include_images: {}", query, config.include_images));
+
+    if query.trim().is_empty() {
+        return Err("Search query cannot be empty".to_string());
+    }
+
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    // Use semantic search with multimodal capability
+    let search_results = service
+        .semantic_search(&query, config.max_results)
+        .await
+        .map_err(|e| format!("Failed to perform multimodal search: {}", e))?;
+
+    // Convert to search results with enhanced snippets for images
+    let results: Vec<SearchResult> = search_results
+        .into_iter()
+        .filter(|result| result.score >= config.min_similarity_threshold as f32)
+        .map(|search_result| {
+            let snippet = create_search_snippet(&search_result.node);
+            SearchResult {
+                node: search_result.node,
+                score: search_result.score as f64,
+                snippet,
+            }
+        })
+        .collect();
+
+    log::info!("✅ Multimodal search completed, found {} results", results.len());
+    Ok(results)
+}
+
+// Helper functions for image processing
+
+async fn process_image_file(
+    file_path: String,
+    state: State<'_, AppState>,
+) -> Result<ImageData, String> {
+    use std::fs;
+
+    // 2. Validate file (type, size, security)
+    if !is_image_file(&file_path) {
+        return Err("File is not a supported image format".to_string());
+    }
+
+    let metadata = fs::metadata(&file_path)
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+
+    if metadata.len() > 10 * 1024 * 1024 { // 10MB limit
+        return Err("Image file too large (max 10MB)".to_string());
+    }
+
+    // 3. Read and validate image data
+    let image_data = fs::read(&file_path)
+        .map_err(|e| format!("Failed to read image file: {}", e))?;
+
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Invalid image format: {}", e))?;
+
+    let (width, height) = (img.width(), img.height());
+
+    // 4. Extract metadata (EXIF, camera info)
+    let filename = std::path::Path::new(&file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let mime_type = mime_guess::from_path(&file_path)
+        .first_or_octet_stream()
+        .to_string();
+
+    // 5. Generate embeddings via NLP engine
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    // For now, generate embeddings from filename and basic metadata
+    // TODO: Implement actual image embedding generation in NLP engine
+    let description = format!("Image: {} ({}x{})", filename, width, height);
+    let embeddings = service
+        .generate_embeddings(&description)
+        .await
+        .unwrap_or_else(|_| vec![0.0; 384]); // Fallback to zero vector
+
+    // 6. Create blob URL for UI display
+    let base64_data = base64::encode(&image_data);
+    let blob_url = format!("data:{};base64,{}", mime_type, base64_data);
+
+    let image_metadata = ImageMetadata {
+        filename,
+        mime_type,
+        file_size: metadata.len(),
+        width,
+        height,
+        exif_data: None, // TODO: Extract EXIF data
+        ai_description: None, // TODO: Generate AI description
+        created_at: chrono::Utc::now(),
+    };
+
+    let image_data = ImageData {
+        file_path,
+        metadata: image_metadata,
+        embeddings,
+        blob_url,
+        dimensions: (width, height),
+    };
+
+    log::info!("✅ Processed image file: {} ({}x{})", image_data.metadata.filename, width, height);
+    Ok(image_data)
+}
+
+fn is_image_file(file_path: &str) -> bool {
+    let path = std::path::Path::new(file_path);
+    if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
+        matches!(extension.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp")
+    } else {
+        false
+    }
+}
+
+fn create_search_snippet(node: &Node) -> String {
+    if let Some(content_str) = node.content.as_str() {
+        let snippet_len = content_str.len().min(100);
+        if content_str.len() > snippet_len {
+            format!("{}...", &content_str[..snippet_len])
+        } else {
+            content_str.to_string()
+        }
+    } else {
+        // For non-text content (like images), create a descriptive snippet
+        if let Some(metadata) = node.metadata.as_object() {
+            if let Some(node_type) = metadata.get("node_type").and_then(|v| v.as_str()) {
+                match node_type {
+                    "image" => {
+                        let filename = metadata.get("filename")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("image");
+                        format!("Image: {}", filename)
+                    },
+                    _ => "...".to_string(),
+                }
+            } else {
+                "...".to_string()
+            }
+        } else {
+            "...".to_string()
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize custom logging first
@@ -492,6 +731,9 @@ pub fn run() {
     log_startup();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::default())
         .setup(|_app| {
             // Skip Tauri plugin logging since we already initialized fern logging
@@ -503,6 +745,7 @@ pub fn run() {
             log::info!("   ✅ Clean dependency boundary: Desktop → ServiceContainer → Data Store + NLP Engine");
             log::info!("   ✅ Zero ML dependencies in desktop app");
             log::info!("   ✅ Real AI processing and database persistence via ServiceContainer");
+            log::info!("   ✅ NS-84: Multimodal file processing capabilities enabled");
             Ok(())
         })
         .on_window_event(|_window, event| {
@@ -522,7 +765,11 @@ pub fn run() {
             create_or_get_date_node,
             update_node_content,
             update_node_structure,
-            get_today_date
+            get_today_date,
+            // ADR-015: Multimodal file processing commands
+            create_image_node,
+            process_dropped_files,
+            multimodal_search
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

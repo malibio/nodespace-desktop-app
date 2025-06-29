@@ -6,6 +6,11 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "fs:allow-read-file",
+    "fs:allow-read-dir",
+    "fs:scope-picture",
+    "dialog:allow-open",
+    "clipboard-manager:allow-read-image"
   ]
 }

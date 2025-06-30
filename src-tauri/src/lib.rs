@@ -350,7 +350,7 @@ async fn semantic_search(
 async fn get_nodes_for_date(
     date_str: String,
     state: State<'_, AppState>,
-) -> Result<Vec<Node>, String> {
+) -> Result<serde_json::Value, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
 
     // Parse the date string
@@ -364,18 +364,43 @@ async fn get_nodes_for_date(
     }
     let service = service_guard.as_ref().unwrap();
 
-    // Get nodes for the specified date using NodeSpaceService
-    let nodes = service
-        .get_nodes_for_date(date)
-        .await
-        .map_err(|e| format!("Failed to get nodes for date: {}", e))?;
+    // NS-111: Use new hierarchical API from core-logic (NS-110)
+    match service.get_hierarchical_nodes_for_date(date).await {
+        Ok(hierarchical_data) => {
+            log::info!(
+                "✅ NS-111: Retrieved hierarchical data for date {} with {} children",
+                date_str,
+                hierarchical_data.children.len()
+            );
 
-    log::info!(
-        "✅ NS-39: Retrieved {} nodes for date {} from database",
-        nodes.len(),
-        date_str
-    );
-    Ok(nodes)
+            // Return structured hierarchical response
+            serde_json::to_value(hierarchical_data)
+                .map_err(|e| format!("Failed to serialize hierarchical data: {}", e))
+        }
+        Err(e) => {
+            log::warn!(
+                "⚠️ NS-111: Hierarchical API failed for date {}, falling back to flat nodes: {}",
+                date_str,
+                e
+            );
+
+            // Graceful fallback to original flat node API
+            let nodes = service
+                .get_nodes_for_date(date)
+                .await
+                .map_err(|e| format!("Failed to get nodes for date (fallback): {}", e))?;
+
+            log::info!(
+                "✅ NS-111: Fallback retrieved {} flat nodes for date {}",
+                nodes.len(),
+                date_str
+            );
+
+            // Return flat nodes in legacy format for compatibility
+            serde_json::to_value(nodes)
+                .map_err(|e| format!("Failed to serialize fallback nodes: {}", e))
+        }
+    }
 }
 
 #[tauri::command]

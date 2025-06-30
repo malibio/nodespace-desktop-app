@@ -35,33 +35,6 @@ function App() {
     });
   }, []);
 
-  // NS-105: Handle virtual node content changes
-  const handleVirtualNodeContent = useCallback(async (nodeId: string, content: string) => {
-    // Find the virtual node
-    const virtualNode = nodes.find(n => n.getNodeId() === nodeId);
-    if (!virtualNode || !(virtualNode as any).isVirtual || content.trim() === '') {
-      return;
-    }
-
-    try {
-      const dateContext = (virtualNode as any).dateContext;
-      console.log(`🔄 NS-105: Converting virtual node to real node for date ${dateContext}`);
-      
-      // Create real node for the date
-      const newNodeId = await invoke<string>('create_node_for_date', {
-        dateStr: dateContext,
-        content: content.trim()
-      });
-
-      console.log(`✅ NS-105: Created real node ${newNodeId} for date ${dateContext}`);
-      
-      // Reload nodes for the current date to get the updated hierarchy
-      await loadNodesForDate(selectedDate);
-      
-    } catch (error) {
-      console.error('Failed to create real node from virtual node:', error);
-    }
-  }, [nodes, selectedDate, loadNodesForDate]);
 
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
@@ -132,101 +105,103 @@ function App() {
     });
   };
 
-  // Convert backend Node data to frontend BaseNode instances
-  const convertToBaseNodes = (backendNodes: any[]): BaseNode[] => {
-    // Sort nodes by sibling order for proper sequence display
-    const sortedNodes = sortNodesBySiblingOrder(backendNodes);
+  // NS-111: Simplified node conversion - hierarchy now handled by backend
+  const convertHierarchicalToBaseNodes = (hierarchicalData: any): BaseNode[] => {
+    if (!hierarchicalData) return [];
     
-    return sortedNodes.map(nodeData => {
-      const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
+    // Handle both new hierarchical format and legacy flat format for backward compatibility
+    if (hierarchicalData.children) {
+      // New hierarchical format from NS-110
+      console.log(`🏗️ NS-111: Converting hierarchical data with ${hierarchicalData.children.length} children`);
+      return flattenHierarchicalNodes(hierarchicalData.children);
+    } else if (Array.isArray(hierarchicalData)) {
+      // Legacy flat format fallback
+      console.log(`📦 NS-111: Converting legacy flat nodes (${hierarchicalData.length} nodes)`);
+      return hierarchicalData.map(nodeData => createBaseNodeFromData(nodeData));
+    }
+    
+    return [];
+  };
+  
+  // Helper to flatten hierarchical structure into BaseNode array
+  const flattenHierarchicalNodes = (hierarchicalNodes: any[]): BaseNode[] => {
+    const result: BaseNode[] = [];
+    
+    const processNode = (hierarchicalNode: any) => {
+      const baseNode = createBaseNodeFromData(hierarchicalNode.node);
       
-      // Determine node type from metadata or default to TextNode
-      const nodeType = nodeData.metadata?.nodeType || 'text';
+      // Store hierarchy metadata for UI rendering
+      (baseNode as any).depth = hierarchicalNode.depth || 0;
+      (baseNode as any).siblingIndex = hierarchicalNode.sibling_index || 0;
+      (baseNode as any).parentId = hierarchicalNode.parent_id || null;
       
-      let node: BaseNode;
-      switch (nodeType) {
-        case 'ai-chat':
-          node = new AIChatNode(content);
-          break;
-        case 'task':
-          node = new TaskNode(content);
-          break;
-        default:
-          node = new TextNode(content);
+      result.push(baseNode);
+      
+      // Process children recursively
+      if (hierarchicalNode.children && hierarchicalNode.children.length > 0) {
+        hierarchicalNode.children.forEach(processNode);
       }
-      
-      // Set the ID to match backend
-      (node as any).id = nodeData.id;
-      // Store sibling pointer information for UI ordering
-      (node as any).next_sibling = nodeData.next_sibling;
-      (node as any).previous_sibling = nodeData.previous_sibling;
-      return node;
-    });
+    };
+    
+    hierarchicalNodes.forEach(processNode);
+    return result;
+  };
+  
+  // Helper to create BaseNode from node data
+  const createBaseNodeFromData = (nodeData: any): BaseNode => {
+    const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
+    
+    // Determine node type from metadata or default to TextNode
+    const nodeType = nodeData.metadata?.nodeType || 'text';
+    
+    let node: BaseNode;
+    switch (nodeType) {
+      case 'ai-chat':
+        node = new AIChatNode(content);
+        break;
+      case 'task':
+        node = new TaskNode(content);
+        break;
+      default:
+        node = new TextNode(content);
+    }
+    
+    // Set the ID to match backend
+    (node as any).id = nodeData.id;
+    return node;
   };
 
-  // Sort nodes by sibling pointer relationships for proper sequence display
-  const sortNodesBySiblingOrder = (nodes: any[]): any[] => {
-    if (nodes.length === 0) return nodes;
 
-    // Create a map for quick lookup
-    const nodeMap = new Map(nodes.map(node => [node.id, node]));
-    const sortedNodes: any[] = [];
-    const visited = new Set<string>();
-
-    // Find nodes that have no previous sibling (start of sequences)
-    const firstNodes = nodes.filter(node => !node.previous_sibling);
-
-    // Process each sequence starting from first nodes
-    for (const firstNode of firstNodes) {
-      let currentNode = firstNode;
-      
-      // Follow the sibling chain
-      while (currentNode && !visited.has(currentNode.id)) {
-        visited.add(currentNode.id);
-        sortedNodes.push(currentNode);
-        
-        // Move to next sibling
-        currentNode = currentNode.next_sibling ? nodeMap.get(currentNode.next_sibling) : null;
-      }
-    }
-
-    // Add any remaining nodes that weren't part of sibling chains
-    for (const node of nodes) {
-      if (!visited.has(node.id)) {
-        sortedNodes.push(node);
-      }
-    }
-
-    return sortedNodes;
-  };
-
-  // Load nodes for a specific date from database
+  // NS-111: Simplified date loading using hierarchical API from backend
   const loadNodesForDate = useCallback(async (date: Date) => {
     try {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      console.log(`🔄 NS-105: Loading nodes for date: ${dateStr}`);
-      const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
+      console.log(`🔄 NS-111: Loading hierarchical data for date: ${dateStr}`);
+      const hierarchicalData = await invoke<any>('get_nodes_for_date', { 
         dateStr: dateStr 
       });
       
-      console.log(`✅ NS-105: Loaded ${backendNodes.length} nodes from database`);
+      console.log(`✅ NS-111: Received structured data from backend for ${dateStr}`);
+      
+      // Convert hierarchical data to frontend nodes (handles both new and legacy formats)
+      const frontendNodes = convertHierarchicalToBaseNodes(hierarchicalData);
       
       // NS-105: Handle empty date state with virtual empty node
-      if (backendNodes.length === 0) {
-        console.log(`📝 NS-105: Empty date detected, creating virtual empty node for ${dateStr}`);
+      if (frontendNodes.length === 0) {
+        console.log(`📝 NS-111: Empty date detected, creating virtual empty node for ${dateStr}`);
         const virtualEmptyNode = new TextNode('');
         // Mark this as a virtual node that hasn't been persisted yet
         (virtualEmptyNode as any).isVirtual = true;
         (virtualEmptyNode as any).dateContext = dateStr;
         setNodes([virtualEmptyNode]);
       } else {
-        const frontendNodes = convertToBaseNodes(backendNodes);
+        console.log(`🏗️ NS-111: Setting ${frontendNodes.length} hierarchically structured nodes`);
         setNodes(frontendNodes);
       }
     } catch (error) {
-      console.error('Failed to load nodes for date:', error);
+      console.error('Failed to load hierarchical data for date:', error);
       // Fallback to virtual empty node on error
       const virtualEmptyNode = new TextNode('');
       (virtualEmptyNode as any).isVirtual = true;
@@ -236,6 +211,34 @@ function App() {
       setLoading(false);
     }
   }, []);
+
+  // NS-105: Handle virtual node content changes
+  const handleVirtualNodeContent = useCallback(async (nodeId: string, content: string) => {
+    // Find the virtual node
+    const virtualNode = nodes.find(n => n.getNodeId() === nodeId);
+    if (!virtualNode || !(virtualNode as any).isVirtual || content.trim() === '') {
+      return;
+    }
+
+    try {
+      const dateContext = (virtualNode as any).dateContext;
+      console.log(`🔄 NS-105: Converting virtual node to real node for date ${dateContext}`);
+      
+      // Create real node for the date
+      const newNodeId = await invoke<string>('create_node_for_date', {
+        dateStr: dateContext,
+        content: content.trim()
+      });
+
+      console.log(`✅ NS-105: Created real node ${newNodeId} for date ${dateContext}`);
+      
+      // Reload nodes for the current date to get the updated hierarchy
+      await loadNodesForDate(selectedDate);
+      
+    } catch (error) {
+      console.error('Failed to create real node from virtual node:', error);
+    }
+  }, [nodes, selectedDate, loadNodesForDate]);
 
   // Load nodes when date changes
   useEffect(() => {

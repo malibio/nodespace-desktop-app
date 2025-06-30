@@ -70,7 +70,8 @@ pub struct MultimodalSearchConfig {
 // NodeSpaceService integration with dependency injection
 
 // Type alias for complex NodeSpaceService type
-type NodeSpaceServiceType = Arc<Mutex<Option<Arc<NodeSpaceService<LanceDataStore, LocalNLPEngine>>>>>;
+type NodeSpaceServiceType =
+    Arc<Mutex<Option<Arc<NodeSpaceService<LanceDataStore, LocalNLPEngine>>>>>;
 
 // Application state with NodeSpaceService
 pub struct AppState {
@@ -91,7 +92,7 @@ async fn initialize_nodespace_service(
     log::info!("🚀 Initializing NodeSpaceService with dependency injection");
 
     // Initialize data store
-    let data_store = LanceDataStore::new("./data/lance_db")
+    let data_store = LanceDataStore::new("/Users/malibio/nodespace/data/lance_db")
         .await
         .map_err(|e| format!("Failed to initialize data store: {}", e))?;
 
@@ -481,6 +482,68 @@ async fn update_node_structure(
 }
 
 #[tauri::command]
+async fn create_node_for_date(
+    date_str: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> Result<NodeId, String> {
+    log_command(
+        "create_node_for_date",
+        &format!("date: {}, content_len: {}", date_str, content.len()),
+    );
+
+    if content.trim().is_empty() {
+        return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
+    }
+
+    // Parse the date string
+    let _date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    log::info!(
+        "🚀 NS-105: Creating node for date {} with content: {}",
+        date_str,
+        content.chars().take(50).collect::<String>()
+    );
+
+    // For now, use the existing create_knowledge_node and add date metadata
+    // TODO: Update when core-logic implements create_node_for_date with lazy date node creation
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        "date".to_string(),
+        serde_json::Value::String(date_str.clone()),
+    );
+    metadata.insert(
+        "node_type".to_string(),
+        serde_json::Value::String("text".to_string()),
+    );
+    metadata.insert(
+        "created_for_date".to_string(),
+        serde_json::Value::Bool(true),
+    );
+
+    let metadata_value = serde_json::Value::Object(metadata.into_iter().collect());
+    let node_id = service
+        .create_knowledge_node(&content, metadata_value)
+        .await
+        .map_err(|e| format!("Failed to create node for date: {}", e))?;
+
+    log::info!(
+        "✅ NS-105: Created node {} for date {} with database persistence",
+        node_id,
+        date_str
+    );
+    Ok(node_id)
+}
+
+#[tauri::command]
 async fn get_today_date() -> Result<String, String> {
     let today = chrono::Utc::now().date_naive();
     Ok(today.format("%Y-%m-%d").to_string())
@@ -739,6 +802,7 @@ pub fn run() {
             navigate_to_date,
             update_node_content,
             update_node_structure,
+            create_node_for_date,
             get_today_date,
             // ADR-015: Multimodal file processing commands
             create_image_node,

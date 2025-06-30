@@ -15,9 +15,9 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary with proper dependency injection
 use chrono::NaiveDate;
-use nodespace_core_logic::{CoreLogic, DateNavigation, NavigationResult, NodeSpaceService};
+use nodespace_core_logic::{CoreLogic, NavigationResult, NodeSpaceService};
 use nodespace_core_types::{Node, NodeId};
-use nodespace_data_store::LanceDataStore;
+use nodespace_data_store::{LanceDataStore, NodeType};
 use nodespace_nlp_engine::LocalNLPEngine;
 
 // NodeSpaceService integration with dependency injection pattern
@@ -497,7 +497,7 @@ async fn create_node_for_date(
     }
 
     // Parse the date string
-    let _date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Get or initialize the NodeSpaceService
@@ -508,35 +508,19 @@ async fn create_node_for_date(
     let service = service_guard.as_ref().unwrap();
 
     log::info!(
-        "🚀 NS-105: Creating node for date {} with content: {}",
+        "🚀 NS-109: Creating node for date {} using core-logic date-aware API with content: {}",
         date_str,
         content.chars().take(50).collect::<String>()
     );
 
-    // For now, use the existing create_knowledge_node and add date metadata
-    // TODO: Update when core-logic implements create_node_for_date with lazy date node creation
-    let mut metadata = std::collections::HashMap::new();
-    metadata.insert(
-        "date".to_string(),
-        serde_json::Value::String(date_str.clone()),
-    );
-    metadata.insert(
-        "node_type".to_string(),
-        serde_json::Value::String("text".to_string()),
-    );
-    metadata.insert(
-        "created_for_date".to_string(),
-        serde_json::Value::Bool(true),
-    );
-
-    let metadata_value = serde_json::Value::Object(metadata.into_iter().collect());
+    // Use proper date-aware creation from core-logic (NS-108 implementation)
     let node_id = service
-        .create_knowledge_node(&content, metadata_value)
+        .create_node_for_date(date, &content, NodeType::Text, None)
         .await
         .map_err(|e| format!("Failed to create node for date: {}", e))?;
 
     log::info!(
-        "✅ NS-105: Created node {} for date {} with database persistence",
+        "✅ NS-109: Created node {} for date {} with proper date context and hierarchical structure",
         node_id,
         date_str
     );

@@ -10,11 +10,8 @@ import "nodespace-core-ui/dist/nodeSpace.css";
 import './App.css';
 
 function App() {
-  const [nodes, setNodes] = useState<BaseNode[]>(() => {
-    // Initialize with a single node if empty
-    const initialNode = new TextNode('Welcome to NodeSpace');
-    return [initialNode];
-  });
+  // NS-105: Start with empty nodes, proper date-based loading happens in useEffect
+  const [nodes, setNodes] = useState<BaseNode[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -38,13 +35,48 @@ function App() {
     });
   }, []);
 
+  // NS-105: Handle virtual node content changes
+  const handleVirtualNodeContent = useCallback(async (nodeId: string, content: string) => {
+    // Find the virtual node
+    const virtualNode = nodes.find(n => n.getNodeId() === nodeId);
+    if (!virtualNode || !(virtualNode as any).isVirtual || content.trim() === '') {
+      return;
+    }
+
+    try {
+      const dateContext = (virtualNode as any).dateContext;
+      console.log(`🔄 NS-105: Converting virtual node to real node for date ${dateContext}`);
+      
+      // Create real node for the date
+      const newNodeId = await invoke<string>('create_node_for_date', {
+        dateStr: dateContext,
+        content: content.trim()
+      });
+
+      console.log(`✅ NS-105: Created real node ${newNodeId} for date ${dateContext}`);
+      
+      // Reload nodes for the current date to get the updated hierarchy
+      await loadNodesForDate(selectedDate);
+      
+    } catch (error) {
+      console.error('Failed to create real node from virtual node:', error);
+    }
+  }, [nodes, selectedDate, loadNodesForDate]);
+
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
     },
     onNodeChange: (nodeId: string, content: string) => {
-      // Auto-save content changes with debouncing
-      debouncedSaveContent(nodeId, content);
+      // NS-105: Check if this is a virtual node first
+      const node = nodes.find(n => n.getNodeId() === nodeId);
+      if (node && (node as any).isVirtual) {
+        // Handle virtual node content change with debouncing
+        debouncedCreateFromVirtual(nodeId, content);
+      } else {
+        // Auto-save content changes with debouncing for real nodes
+        debouncedSaveContent(nodeId, content);
+      }
     },
     onNodeStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)
@@ -174,18 +206,32 @@ function App() {
       setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      console.log(`🔄 NS-39: Loading nodes for date: ${dateStr}`);
+      console.log(`🔄 NS-105: Loading nodes for date: ${dateStr}`);
       const backendNodes = await invoke<any[]>('get_nodes_for_date', { 
         dateStr: dateStr 
       });
       
-      console.log(`✅ NS-39: Loaded ${backendNodes.length} nodes from database`);
-      const frontendNodes = convertToBaseNodes(backendNodes);
-      setNodes(frontendNodes);
+      console.log(`✅ NS-105: Loaded ${backendNodes.length} nodes from database`);
+      
+      // NS-105: Handle empty date state with virtual empty node
+      if (backendNodes.length === 0) {
+        console.log(`📝 NS-105: Empty date detected, creating virtual empty node for ${dateStr}`);
+        const virtualEmptyNode = new TextNode('');
+        // Mark this as a virtual node that hasn't been persisted yet
+        (virtualEmptyNode as any).isVirtual = true;
+        (virtualEmptyNode as any).dateContext = dateStr;
+        setNodes([virtualEmptyNode]);
+      } else {
+        const frontendNodes = convertToBaseNodes(backendNodes);
+        setNodes(frontendNodes);
+      }
     } catch (error) {
       console.error('Failed to load nodes for date:', error);
-      // Fallback to empty nodes on error
-      setNodes([]);
+      // Fallback to virtual empty node on error
+      const virtualEmptyNode = new TextNode('');
+      (virtualEmptyNode as any).isVirtual = true;
+      (virtualEmptyNode as any).dateContext = date.toISOString().split('T')[0];
+      setNodes([virtualEmptyNode]);
     } finally {
       setLoading(false);
     }
@@ -193,9 +239,8 @@ function App() {
 
   // Load nodes when date changes
   useEffect(() => {
-    // Temporarily disabled until ONNX migration is complete
-    // loadNodesForDate(selectedDate);
-    setLoading(false);
+    // ONNX migration is complete - re-enabling date navigation
+    loadNodesForDate(selectedDate);
   }, [selectedDate, loadNodesForDate]);
 
   // Debounced auto-save for content changes
@@ -210,6 +255,16 @@ function App() {
       }
     }, 500), // 500ms delay
     []
+  );
+
+  // NS-105: Debounced virtual node to real node conversion
+  const debouncedCreateFromVirtual = useCallback(
+    debounce(async (nodeId: string, content: string) => {
+      if (content.trim() !== '') {
+        await handleVirtualNodeContent(nodeId, content);
+      }
+    }, 500), // 500ms delay
+    [handleVirtualNodeContent]
   );
 
   // Immediate save for structure changes including sibling relationships

@@ -15,7 +15,7 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary with proper dependency injection
 use chrono::NaiveDate;
-use nodespace_core_logic::{CoreLogic, NodeSpaceService};
+use nodespace_core_logic::{CoreLogic, HierarchyComputation, NodeSpaceService};
 use nodespace_core_types::{Node, NodeId};
 use nodespace_data_store::{LanceDataStore, NodeType};
 use nodespace_nlp_engine::LocalNLPEngine;
@@ -525,15 +525,20 @@ async fn create_node_for_date_with_id(
         content.chars().take(50).collect::<String>()
     );
 
-    // CRITICAL: create_node_for_date_with_id method not available in core-logic yet
-    // This indicates NS-118 is not actually complete despite Linear claims
-    // Until NS-118 provides this method, we cannot satisfy Linear requirement #2
-    Err(format!(
-        "COMPLIANCE VIOLATION: create_node_for_date_with_id method not available in core-logic. \
-        NS-118 must implement this method before NS-123 can meet Linear requirement #2. \
-        Provided UUID: {} for future integration.",
-        node_id
-    ))
+    // Use proper fire-and-forget creation from core-logic
+    let service = service_guard.as_ref().unwrap();
+    
+    service
+        .create_node_for_date_with_id(_node_id_obj, _date, &content, NodeType::Text, None)
+        .await
+        .map_err(|e| format!("Failed to create node with provided ID: {}", e))?;
+
+    log::info!(
+        "✅ Created node with provided UUID {} for date {} using fire-and-forget pattern",
+        node_id,
+        date_str
+    );
+    Ok(())
 }
 
 #[tauri::command]

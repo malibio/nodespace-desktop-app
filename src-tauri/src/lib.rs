@@ -15,7 +15,7 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary with proper dependency injection
 use chrono::NaiveDate;
-use nodespace_core_logic::{CoreLogic, NavigationResult, NodeSpaceService};
+use nodespace_core_logic::{CoreLogic, DateNavigation, NavigationResult, NodeSpaceService};
 use nodespace_core_types::{Node, NodeId};
 use nodespace_data_store::{LanceDataStore, NodeType};
 use nodespace_nlp_engine::LocalNLPEngine;
@@ -432,10 +432,7 @@ async fn update_node_content(
         .await
         .map_err(|e| format!("Failed to auto-save node content: {}", e))?;
 
-    log::info!(
-        "✅ Auto-saved content for node {} to database",
-        node_id
-    );
+    log::info!("✅ Auto-saved content for node {} to database", node_id);
     Ok(())
 }
 
@@ -508,10 +505,10 @@ async fn create_node_for_date(
 
     // Convert virtual node ID if provided
     let node_id_param = virtual_node_id.map(|id| NodeId::from_string(id));
-    
+
     // Use proper date-aware creation from core-logic
     let node_id = service
-        .create_node_for_date(date, &content, NodeType::Text, None, node_id_param)
+        .create_node_for_date(date, &content, NodeType::Text, None)
         .await
         .map_err(|e| format!("Failed to create node for date: {}", e))?;
 

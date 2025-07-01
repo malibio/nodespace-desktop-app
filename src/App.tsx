@@ -41,34 +41,16 @@ function App() {
       setNodes(newNodes);
     },
     onNodeChange: (nodeId: string, content: string) => {
-      // Check if this is a virtual node first
-      const node = nodes.find(n => n.getNodeId() === nodeId);
-      if (node && (node as any).isVirtual) {
-        // IMMEDIATE: Update virtual node content in React state
-        const updatedNodes = nodes.map(n => {
-          if (n.getNodeId() === nodeId) {
-            (n as any).content = content; // Update content immediately
-            return n;
-          }
-          return n;
-        });
-        setNodes(updatedNodes);
-        
-        // DEBOUNCED: Handle virtual node to real node conversion
-        debouncedCreateFromVirtual(nodeId, content);
-      } else {
-        // Auto-save content changes with debouncing for real nodes
-        debouncedSaveContent(nodeId, content);
-      }
+      // Fire-and-forget pattern: All nodes are real, just debounce auto-save
+      debouncedSaveContent(nodeId, content);
     },
     onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
-      // Called when user presses Enter to create a new sibling node
+      // Fire-and-forget pattern: Use new create_node_with_generated_id command
       try {
         const dateStr = selectedDate.toISOString().split('T')[0];
-        const newNodeId = await invoke<string>('create_node_for_date', {
+        const newNodeId = await invoke<string>('create_node_with_generated_id', {
           dateStr: dateStr,
           content: content || '', // Allow empty initial content
-          virtualNodeId: null // No virtual node ID for Enter-created nodes
         });
         
         return newNodeId;
@@ -191,74 +173,37 @@ function App() {
       // Direct mapping from hierarchical backend data to BaseNodes
       const frontendNodes = convertToBaseNodes(hierarchicalData);
       
-      // Handle empty date state with virtual empty node
+      // Immediate date node creation: If empty date, create a real empty node for UX
       if (frontendNodes.length === 0) {
-        const virtualEmptyNode = new TextNode('');
-        (virtualEmptyNode as any).isVirtual = true;
-        (virtualEmptyNode as any).dateContext = dateStr;
-        setNodes([virtualEmptyNode]);
+        try {
+          console.log(`📝 Creating immediate date node for empty date: ${dateStr}`);
+          const newNodeId = await invoke<string>('create_node_with_generated_id', {
+            dateStr: dateStr,
+            content: '', // Start with empty content - user can type immediately
+          });
+          
+          // Create a real node in UI state immediately
+          const newNode = new TextNode('');
+          (newNode as any).id = newNodeId;
+          setNodes([newNode]);
+        } catch (error) {
+          console.error('Failed to create immediate date node:', error);
+          // Fallback to empty interface
+          setNodes([]);
+        }
       } else {
         setNodes(frontendNodes);
       }
     } catch (error) {
       console.error('Failed to load hierarchical data for date:', error);
-      // Fallback to virtual empty node on error
-      const virtualEmptyNode = new TextNode('');
-      (virtualEmptyNode as any).isVirtual = true;
-      (virtualEmptyNode as any).dateContext = date.toISOString().split('T')[0];
-      setNodes([virtualEmptyNode]);
+      // On error, just show empty interface
+      setNodes([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Handle virtual node content changes
-  const handleVirtualNodeContent = useCallback(async (nodeId: string, providedContent: string) => {
-    // Find the virtual node
-    const virtualNode = nodes.find(n => n.getNodeId() === nodeId);
-    
-    if (!virtualNode || !(virtualNode as any).isVirtual) {
-      return;
-    }
-
-    // Use current node content instead of debounced content to avoid stale data
-    const currentContent = typeof virtualNode.getContent() === 'string' ? virtualNode.getContent() : '';
-    
-    if (currentContent.trim() === '') {
-      return;
-    }
-
-    try {
-      const dateContext = (virtualNode as any).dateContext;
-      
-      // Create real node for the date, reusing the virtual node ID
-      const newNodeId = await invoke<string>('create_node_for_date', {
-        dateStr: dateContext,
-        content: currentContent.trim(),
-        virtualNodeId: nodeId // Pass the virtual node ID to reuse it
-      });
-
-      // Since we reused the virtual node ID, newNodeId should equal nodeId
-      if (newNodeId === nodeId) {
-        // Simply mark the virtual node as real (no ID change needed)
-        const updatedNodes = nodes.map(node => {
-          if (node.getNodeId() === nodeId) {
-            delete (node as any).isVirtual;
-            delete (node as any).dateContext;
-            return node;
-          }
-          return node;
-        });
-        setNodes(updatedNodes);
-      } else {
-        console.warn(`Unexpected! Backend generated different ID: ${newNodeId} vs ${nodeId}`);
-        // Fallback to old behavior if somehow IDs don't match
-      }
-      
-    } catch (error) {
-      console.error('Failed to create real node from virtual node:', error);
-    }
-  }, [nodes, selectedDate]);
+  // Removed handleVirtualNodeContent - no longer needed with fire-and-forget pattern
 
   // Load nodes when date changes
   useEffect(() => {
@@ -266,36 +211,24 @@ function App() {
     loadNodesForDate(selectedDate);
   }, [selectedDate, loadNodesForDate]);
 
-  // Debounced auto-save for content changes
+  // Debounced auto-save for content changes - fire-and-forget pattern
   const debouncedSaveContent = useCallback(
     debounce(async (nodeId: string, content: string) => {
       try {
-        // Safety check: Only auto-save real nodes that still exist
-        const currentNode = nodes.find(n => n.getNodeId() === nodeId);
-        if (!currentNode || (currentNode as any).isVirtual) {
-          return;
-        }
-        
+        // All nodes are real nodes now - no virtual node checks needed
         await invoke('update_node_content', { nodeId, content });
       } catch (error) {
-        // Handle expected errors gracefully (e.g., node was converted/deleted)
+        // Handle expected errors gracefully (e.g., node was deleted)
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (!errorMessage.includes('Record not found') && !errorMessage.includes('not found')) {
           console.error('Failed to auto-save node content:', error);
         }
       }
     }, 500), // 500ms delay
-    [nodes] // Add nodes dependency so we have current state
+    [] // No dependencies needed for fire-and-forget pattern
   );
 
-  // Debounced virtual node to real node conversion
-  const debouncedCreateFromVirtual = useCallback(
-    debounce(async (nodeId: string, content: string) => {
-      // Always call handleVirtualNodeContent - it will check current content and virtual status
-      await handleVirtualNodeContent(nodeId, content);
-    }, 500), // 500ms delay
-    [handleVirtualNodeContent]
-  );
+  // Removed debouncedCreateFromVirtual - no longer needed with fire-and-forget pattern
 
   // Immediate save for structure changes including sibling relationships
   const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {

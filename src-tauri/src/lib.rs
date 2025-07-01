@@ -15,7 +15,7 @@ use crate::logging::*;
 
 // Import real NodeSpace types - clean dependency boundary with proper dependency injection
 use chrono::NaiveDate;
-use nodespace_core_logic::{CoreLogic, DateNavigation, NavigationResult, NodeSpaceService};
+use nodespace_core_logic::{CoreLogic, NodeSpaceService};
 use nodespace_core_types::{Node, NodeId};
 use nodespace_data_store::{LanceDataStore, NodeType};
 use nodespace_nlp_engine::LocalNLPEngine;
@@ -371,37 +371,7 @@ async fn get_nodes_for_date(
     }
 }
 
-#[tauri::command]
-async fn navigate_to_date(
-    date_str: String,
-    state: State<'_, AppState>,
-) -> Result<NavigationResult, String> {
-    log_command("navigate_to_date", &format!("date: {}", date_str));
-
-    // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
-
-    // Get or initialize the ServiceContainer
-    let mut service_guard = state.nodespace_service.lock().await;
-    if service_guard.is_none() {
-        *service_guard = Some(initialize_nodespace_service().await?);
-    }
-    let service = service_guard.as_ref().unwrap();
-
-    // Navigate to the specified date using real database
-    let result = service
-        .navigate_to_date(date)
-        .await
-        .map_err(|e| format!("Failed to navigate to date: {}", e))?;
-
-    log::info!(
-        "✅ Navigated to date {} from database with {} nodes",
-        date_str,
-        result.nodes.len()
-    );
-    Ok(result)
-}
+// Removed navigate_to_date - using get_nodes_for_date instead for date navigation
 
 // Removed create_or_get_date_node - use get_nodes_for_date and navigate_to_date instead
 
@@ -475,7 +445,6 @@ async fn update_node_structure(
 async fn create_node_for_date(
     date_str: String,
     content: String,
-    virtual_node_id: Option<String>, // Optional virtual node ID to reuse
     state: State<'_, AppState>,
 ) -> Result<NodeId, String> {
     log_command(
@@ -503,9 +472,6 @@ async fn create_node_for_date(
         content.chars().take(50).collect::<String>()
     );
 
-    // Convert virtual node ID if provided
-    let node_id_param = virtual_node_id.map(|id| NodeId::from_string(id));
-
     // Use proper date-aware creation from core-logic
     let node_id = service
         .create_node_for_date(date, &content, NodeType::Text, None)
@@ -514,6 +480,49 @@ async fn create_node_for_date(
 
     log::info!(
         "✅ Created node {} for date {} with proper date context and hierarchical structure",
+        node_id,
+        date_str
+    );
+    Ok(node_id)
+}
+
+// Fire-and-forget node creation with UUID generated upfront
+#[tauri::command]
+async fn create_node_with_generated_id(
+    date_str: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> Result<NodeId, String> {
+    log_command(
+        "create_node_with_generated_id",
+        &format!("date: {}, content_len: {}", date_str, content.len()),
+    );
+
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    log::info!(
+        "🚀 Creating node with generated UUID for date {} with content: {}",
+        date_str,
+        content.chars().take(50).collect::<String>()
+    );
+
+    // Fire-and-forget pattern: Create node immediately, no waiting for response
+    let node_id = service
+        .create_node_for_date(date, &content, NodeType::Text, None)
+        .await
+        .map_err(|e| format!("Failed to create node for date: {}", e))?;
+
+    log::info!(
+        "✅ Created node {} for date {} with fire-and-forget pattern",
         node_id,
         date_str
     );
@@ -776,10 +785,10 @@ pub fn run() {
             process_query,
             semantic_search,
             get_nodes_for_date,
-            navigate_to_date,
             update_node_content,
             update_node_structure,
             create_node_for_date,
+            create_node_with_generated_id,
             get_today_date,
             // ADR-015: Multimodal file processing commands
             create_image_node,

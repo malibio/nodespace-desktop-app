@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { TextNode, BaseNode, TaskNode, AIChatNode } from 'nodespace-core-ui';
 import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
@@ -20,7 +20,7 @@ function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
-  const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
+  // const textareaRefs = useRef<{ [key: string]: HTMLTextAreaElement | null }>({});
   
   const totalNodeCount = countAllNodes(nodes);
   const handleCollapseChange = useCallback((nodeId: string, collapsed: boolean) => {
@@ -104,10 +104,10 @@ function App() {
     }
   };
 
-  const addNode = () => {
-    const newNode = new TextNode('New node');
-    setNodes([...nodes, newNode]);
-  };
+  // const addNode = () => {
+  //   const newNode = new TextNode('New node');
+  //   setNodes([...nodes, newNode]);
+  // };
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(selectedDate);
@@ -279,7 +279,8 @@ function App() {
         await invoke('update_node_content', { nodeId, content });
       } catch (error) {
         // Handle expected errors gracefully (e.g., node was converted/deleted)
-        if (!error.toString().includes('Record not found') && !error.toString().includes('not found')) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (!errorMessage.includes('Record not found') && !errorMessage.includes('not found')) {
           console.error('Failed to auto-save node content:', error);
         }
       }
@@ -312,7 +313,7 @@ function App() {
     func: T, 
     wait: number
   ): (...args: Parameters<T>) => void {
-    let timeout: NodeJS.Timeout;
+    let timeout: ReturnType<typeof setTimeout>;
     return function executedFunction(...args: Parameters<T>) {
       const later = () => {
         clearTimeout(timeout);

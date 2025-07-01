@@ -24,7 +24,7 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
             ))
         })
         .level(log_level)
-        // Reduce LanceDB verbosity - only show warnings and errors 
+        // Reduce LanceDB verbosity - only show warnings and errors
         // This significantly reduces console spam from LanceDB operations
         .level_for("lance", log::LevelFilter::Warn)
         .level_for("lancedb", log::LevelFilter::Warn)

@@ -36,8 +36,7 @@ function App() {
   }, []);
 
 
-  // NS-124 Integration Ready: Implements the new callback interface pattern
-  // TODO: Replace with onNodeCreateWithId when NS-124 core-ui updates are available
+  // NS-124 Integration: Use actual onNodeCreateWithId callback interface
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
@@ -46,29 +45,33 @@ function App() {
       // Fire-and-forget pattern: All nodes are real, just debounce auto-save
       debouncedSaveContent(nodeId, content);
     },
-    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
-      // NS-124 Integration: Generate UUID in frontend, fire-and-forget to backend
+    // NEW: NS-124 callback interface - Frontend provides UUID, backend uses it
+    onNodeCreateWithId: (nodeId: string, content: string, parentId?: string) => {
       try {
         const dateStr = selectedDate.toISOString().split('T')[0];
         
-        // Generate UUID in frontend (NS-124 pattern simulation until core-ui implements)
-        const nodeId = crypto.randomUUID();
-        
-        // Fire-and-forget: Don't wait for response, use create_node_for_date_with_id
+        // Fire-and-forget: Use create_node_for_date_with_id (NS-124 pattern)
         invoke('create_node_for_date_with_id', {
           nodeId: nodeId,
           dateStr: dateStr,
-          content: content || '', // Allow empty initial content
+          content: content || '',
         }).catch(error => {
           console.error('Background node creation failed (fire-and-forget):', error);
         });
         
-        // Return UUID immediately for UI (fire-and-forget pattern)
-        return nodeId;
+        // Return Promise<void> for fire-and-forget pattern
+        return Promise.resolve();
       } catch (error) {
-        console.error('Failed to generate node ID:', error);
-        throw error;
+        console.error('Failed to process node creation:', error);
+        return Promise.reject(error);
       }
+    },
+    // LEGACY: Keep old callback for compatibility until core-ui migration complete
+    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
+      // Legacy fallback - generate UUID and delegate to onNodeCreateWithId
+      const nodeId = crypto.randomUUID();
+      await callbacks.onNodeCreateWithId?.(nodeId, content, parentId);
+      return nodeId;
     },
     onNodeStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)

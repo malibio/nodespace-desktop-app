@@ -36,6 +36,7 @@ function App() {
   }, []);
 
 
+  // NS-124 Integration: Use actual onNodeCreateWithId callback interface
   const callbacks: NodeSpaceCallbacks = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
@@ -44,20 +45,33 @@ function App() {
       // Fire-and-forget pattern: All nodes are real, just debounce auto-save
       debouncedSaveContent(nodeId, content);
     },
-    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
-      // Fire-and-forget pattern: Use new create_node_with_generated_id command
+    // NEW: NS-124 callback interface - Frontend provides UUID, backend uses it
+    onNodeCreateWithId: (nodeId: string, content: string, parentId?: string) => {
       try {
         const dateStr = selectedDate.toISOString().split('T')[0];
-        const newNodeId = await invoke<string>('create_node_with_generated_id', {
+        
+        // Fire-and-forget: Use create_node_for_date_with_id (NS-124 pattern)
+        invoke('create_node_for_date_with_id', {
+          nodeId: nodeId,
           dateStr: dateStr,
-          content: content || '', // Allow empty initial content
+          content: content || '',
+        }).catch(error => {
+          console.error('Background node creation failed (fire-and-forget):', error);
         });
         
-        return newNodeId;
+        // Return Promise<void> for fire-and-forget pattern
+        return Promise.resolve();
       } catch (error) {
-        console.error('Failed to create new node:', error);
-        throw error;
+        console.error('Failed to process node creation:', error);
+        return Promise.reject(error);
       }
+    },
+    // LEGACY: Keep old callback for compatibility until core-ui migration complete
+    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
+      // Legacy fallback - generate UUID and delegate to onNodeCreateWithId
+      const nodeId = crypto.randomUUID();
+      await callbacks.onNodeCreateWithId?.(nodeId, content, parentId);
+      return nodeId;
     },
     onNodeStructureChange: (operation: string, nodeId: string) => {
       // Immediately save structure changes (parent/child relationships)
@@ -177,14 +191,22 @@ function App() {
       if (frontendNodes.length === 0) {
         try {
           console.log(`📝 Creating immediate date node for empty date: ${dateStr}`);
-          const newNodeId = await invoke<string>('create_node_with_generated_id', {
+          
+          // Generate UUID upfront (NS-124 pattern)
+          const nodeId = crypto.randomUUID();
+          
+          // Fire-and-forget: Create node in background using create_node_for_date_with_id
+          invoke('create_node_for_date_with_id', {
+            nodeId: nodeId,
             dateStr: dateStr,
             content: '', // Start with empty content - user can type immediately
+          }).catch(error => {
+            console.error('Background immediate node creation failed (fire-and-forget):', error);
           });
           
-          // Create a real node in UI state immediately
+          // Create a real node in UI state immediately with generated UUID
           const newNode = new TextNode('');
-          (newNode as any).id = newNodeId;
+          (newNode as any).id = nodeId;
           setNodes([newNode]);
         } catch (error) {
           console.error('Failed to create immediate date node:', error);

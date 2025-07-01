@@ -15,6 +15,7 @@ impl TestUtils {
 
         Node {
             id: node_id,
+            r#type: "test".to_string(),
             content: serde_json::Value::String(content.to_string()),
             metadata: Some(metadata),
             created_at: now.clone(),

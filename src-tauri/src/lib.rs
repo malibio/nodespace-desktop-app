@@ -504,19 +504,19 @@ async fn create_node_for_date_with_id(
         ),
     );
 
-    // Parse the date string (ready for NS-118 when method becomes available)
-    let _date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
-    // Convert string to NodeId (ready for NS-118 when create_node_for_date_with_id is available)
-    let _node_id_obj = NodeId::from_string(node_id.clone());
+    // Convert string to NodeId
+    let node_id_obj = NodeId::from_string(node_id.clone());
 
-    // Get or initialize the NodeSpaceService (ready for NS-118)
+    // Get or initialize the NodeSpaceService
     let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let _service = service_guard.as_ref().unwrap();
+    let service = service_guard.as_ref().unwrap();
 
     log::info!(
         "🚀 Creating node with provided UUID {} for date {} with content: {}",
@@ -526,10 +526,8 @@ async fn create_node_for_date_with_id(
     );
 
     // Use proper fire-and-forget creation from core-logic
-    let service = service_guard.as_ref().unwrap();
-    
     service
-        .create_node_for_date_with_id(_node_id_obj, _date, &content, NodeType::Text, None)
+        .create_node_for_date_with_id(node_id_obj, date, &content, NodeType::Text, None)
         .await
         .map_err(|e| format!("Failed to create node with provided ID: {}", e))?;
 

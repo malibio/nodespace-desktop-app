@@ -158,7 +158,7 @@ async fn create_knowledge_node(
         .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
 
     log::info!(
-        "✅ NS-39: Created knowledge node {} with NodeSpaceService and database persistence",
+        "✅ Created knowledge node {} with NodeSpaceService and database persistence",
         node_id
     );
     Ok(node_id)
@@ -195,42 +195,13 @@ async fn update_node(
         .map_err(|e| format!("Failed to update node: {}", e))?;
 
     log::info!(
-        "✅ NS-39: Updated node {} with real ServiceContainer and database persistence",
+        "✅ Updated node {} with real ServiceContainer and database persistence",
         node_id
     );
     Ok(())
 }
 
-// TODO: Enable once core-logic ServiceContainer has get_node method
-// #[tauri::command]
-// async fn get_node(node_id: String, state: State<'_, AppState>) -> Result<Option<Node>, String> {
-//     log_command("get_node", &format!("node_id: {}", node_id));
-//
-//     // Get or initialize the ServiceContainer
-//     let mut service_guard = state.nodespace_service.lock().await;
-//     if service_guard.is_none() {
-//         *service_guard = Some(initialize_nodespace_service().await?);
-//     }
-//     let service = service_guard.as_ref().unwrap();
-//
-//     // Use real ServiceContainer through core-logic interface (clean architecture)
-//     let node_id_obj = NodeId::from_string(node_id.clone());
-//     let result = service
-//         .get_node(&node_id_obj)
-//         .await
-//         .map_err(|e| format!("Failed to get node: {}", e))?;
-//
-//     if result.is_some() {
-//         log::info!(
-//             "✅ NS-39: Retrieved node {} from database via ServiceContainer",
-//             node_id
-//         );
-//     } else {
-//         log::warn!("Node not found: {} (database lookup via ServiceContainer)", node_id);
-//     }
-//
-//     Ok(result)
-// }
+// TODO: Enable once core-logic ServiceContainer has get_node method available
 
 #[tauri::command]
 async fn process_query(
@@ -251,7 +222,7 @@ async fn process_query(
     let service = service_guard.as_ref().unwrap();
 
     log::info!(
-        "🚀 NS-39: Processing RAG query with real AI and database: {}",
+        "🚀 Processing RAG query with real AI and database: {}",
         question
     );
 
@@ -276,7 +247,7 @@ async fn process_query(
         confidence: query_response.confidence as f64,
     };
 
-    log::info!("✅ NS-39: RAG query processed with real AI and database persistence");
+    log::info!("✅ RAG query processed with real AI and database persistence");
     Ok(response)
 }
 
@@ -307,7 +278,7 @@ async fn semantic_search(
     let service = service_guard.as_ref().unwrap();
 
     log::info!(
-        "🔍 NS-39: Performing semantic search with real embeddings and database: {} (limit: {})",
+        "🔍 Performing semantic search with real embeddings and database: {} (limit: {})",
         query,
         limit
     );
@@ -338,7 +309,7 @@ async fn semantic_search(
         .collect();
 
     log::info!(
-        "✅ NS-39: Semantic search completed with real AI embeddings and database, found {} results",
+        "✅ Semantic search completed with real AI embeddings and database, found {} results",
         results.len()
     );
     Ok(results)
@@ -364,39 +335,36 @@ async fn get_nodes_for_date(
     }
     let service = service_guard.as_ref().unwrap();
 
-    // NS-111: Use new hierarchical API from core-logic (NS-110)
+    // Use hierarchical API with fallback to flat nodes
     match service.get_hierarchical_nodes_for_date(date).await {
         Ok(hierarchical_data) => {
             log::info!(
-                "✅ NS-111: Retrieved hierarchical data for date {} with {} children",
+                "✅ Retrieved hierarchical data for date {} with {} children",
                 date_str,
                 hierarchical_data.children.len()
             );
 
-            // Return structured hierarchical response
             serde_json::to_value(hierarchical_data)
                 .map_err(|e| format!("Failed to serialize hierarchical data: {}", e))
         }
         Err(e) => {
             log::warn!(
-                "⚠️ NS-111: Hierarchical API failed for date {}, falling back to flat nodes: {}",
+                "⚠️ Hierarchical API failed for date {}, falling back to flat nodes: {}",
                 date_str,
                 e
             );
 
-            // Graceful fallback to original flat node API
             let nodes = service
                 .get_nodes_for_date(date)
                 .await
                 .map_err(|e| format!("Failed to get nodes for date (fallback): {}", e))?;
 
             log::info!(
-                "✅ NS-111: Fallback retrieved {} flat nodes for date {}",
+                "✅ Fallback retrieved {} flat nodes for date {}",
                 nodes.len(),
                 date_str
             );
 
-            // Return flat nodes in legacy format for compatibility
             serde_json::to_value(nodes)
                 .map_err(|e| format!("Failed to serialize fallback nodes: {}", e))
         }
@@ -428,7 +396,7 @@ async fn navigate_to_date(
         .map_err(|e| format!("Failed to navigate to date: {}", e))?;
 
     log::info!(
-        "✅ NS-39: Navigated to date {} from database with {} nodes",
+        "✅ Navigated to date {} from database with {} nodes",
         date_str,
         result.nodes.len()
     );
@@ -437,7 +405,7 @@ async fn navigate_to_date(
 
 // Removed create_or_get_date_node - use get_nodes_for_date and navigate_to_date instead
 
-// Real-time async saving commands for NS-39
+// Real-time async saving commands
 #[tauri::command]
 async fn update_node_content(
     node_id: String,
@@ -465,7 +433,7 @@ async fn update_node_content(
         .map_err(|e| format!("Failed to auto-save node content: {}", e))?;
 
     log::info!(
-        "✅ NS-39: Auto-saved content for node {} to database",
+        "✅ Auto-saved content for node {} to database",
         node_id
     );
     Ok(())
@@ -494,7 +462,7 @@ async fn update_node_structure(
 
     // For now, log the structure change - real implementation would update relationships
     log::info!(
-        "🔄 NS-39: Structure change '{}' for node {} - saving to database",
+        "🔄 Structure change '{}' for node {} - saving to database",
         operation,
         node_id
     );
@@ -510,6 +478,7 @@ async fn update_node_structure(
 async fn create_node_for_date(
     date_str: String,
     content: String,
+    virtual_node_id: Option<String>, // Optional virtual node ID to reuse
     state: State<'_, AppState>,
 ) -> Result<NodeId, String> {
     log_command(
@@ -517,9 +486,8 @@ async fn create_node_for_date(
         &format!("date: {}, content_len: {}", date_str, content.len()),
     );
 
-    if content.trim().is_empty() {
-        return Err(AppError::InvalidInput("Content cannot be empty".to_string()).into());
-    }
+    // Allow empty content for new node creation (user will fill it in later)
+    // This enables creating nodes via Enter key that start empty
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -533,19 +501,22 @@ async fn create_node_for_date(
     let service = service_guard.as_ref().unwrap();
 
     log::info!(
-        "🚀 NS-109: Creating node for date {} using core-logic date-aware API with content: {}",
+        "🚀 Creating node for date {} using core-logic date-aware API with content: {}",
         date_str,
         content.chars().take(50).collect::<String>()
     );
 
-    // Use proper date-aware creation from core-logic (NS-108 implementation)
+    // Convert virtual node ID if provided
+    let node_id_param = virtual_node_id.map(|id| NodeId::from_string(id));
+    
+    // Use proper date-aware creation from core-logic
     let node_id = service
-        .create_node_for_date(date, &content, NodeType::Text, None)
+        .create_node_for_date(date, &content, NodeType::Text, None, node_id_param)
         .await
         .map_err(|e| format!("Failed to create node for date: {}", e))?;
 
     log::info!(
-        "✅ NS-109: Created node {} for date {} with proper date context and hierarchical structure",
+        "✅ Created node {} for date {} with proper date context and hierarchical structure",
         node_id,
         date_str
     );
@@ -788,11 +759,11 @@ pub fn run() {
             log_service_init("Application State");
             log_service_ready("Application State");
 
-            log::info!("🎉 NS-39 SUCCESS: NodeSpace Desktop with real ServiceContainer integration initialized");
+            log::info!("🎉 NodeSpace Desktop with real ServiceContainer integration initialized");
             log::info!("   ✅ Clean dependency boundary: Desktop → ServiceContainer → Data Store + NLP Engine");
             log::info!("   ✅ Zero ML dependencies in desktop app");
             log::info!("   ✅ Real AI processing and database persistence via ServiceContainer");
-            log::info!("   ✅ NS-84: Multimodal file processing capabilities enabled");
+            log::info!("   ✅ Multimodal file processing capabilities enabled");
             Ok(())
         })
         .on_window_event(|_window, event| {

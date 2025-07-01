@@ -24,6 +24,23 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
             ))
         })
         .level(log_level)
+        // Reduce LanceDB verbosity - only show warnings and errors 
+        // This significantly reduces console spam from LanceDB operations
+        .level_for("lance", log::LevelFilter::Warn)
+        .level_for("lancedb", log::LevelFilter::Warn)
+        .level_for("lance_core", log::LevelFilter::Warn)
+        .level_for("lance_datafusion", log::LevelFilter::Warn)
+        .level_for("lance_io", log::LevelFilter::Warn)
+        .level_for("lance_encoding", log::LevelFilter::Warn)
+        .level_for("lance_index", log::LevelFilter::Warn)
+        .level_for("lance_table", log::LevelFilter::Warn)
+        .level_for("lance_file", log::LevelFilter::Warn)
+        // Also reduce DataFusion verbosity (used by LanceDB)
+        .level_for("datafusion", log::LevelFilter::Warn)
+        .level_for("datafusion_common", log::LevelFilter::Warn)
+        .level_for("datafusion_execution", log::LevelFilter::Warn)
+        .level_for("datafusion_optimizer", log::LevelFilter::Warn)
+        .level_for("datafusion_physical_plan", log::LevelFilter::Warn)
         .chain(std::io::stdout())
         .chain(
             fern::Dispatch::new()

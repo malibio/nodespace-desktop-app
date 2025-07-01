@@ -504,19 +504,19 @@ async fn create_node_for_date_with_id(
         ),
     );
 
-    // Parse the date string
-    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+    // Parse the date string (ready for NS-118 when method becomes available)
+    let _date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
 
     // Convert string to NodeId (ready for NS-118 when create_node_for_date_with_id is available)
     let _node_id_obj = NodeId::from_string(node_id.clone());
 
-    // Get or initialize the NodeSpaceService
+    // Get or initialize the NodeSpaceService (ready for NS-118)
     let mut service_guard = state.nodespace_service.lock().await;
     if service_guard.is_none() {
         *service_guard = Some(initialize_nodespace_service().await?);
     }
-    let service = service_guard.as_ref().unwrap();
+    let _service = service_guard.as_ref().unwrap();
 
     log::info!(
         "🚀 Creating node with provided UUID {} for date {} with content: {}",
@@ -525,22 +525,15 @@ async fn create_node_for_date_with_id(
         content.chars().take(50).collect::<String>()
     );
 
-    // TODO: Use create_node_for_date_with_id when NS-118 core-logic implementation is complete
-    // For now, using fallback until the method is available
-    log::warn!("create_node_for_date_with_id not yet available in core-logic (NS-118 pending)");
-    log::info!("Using fallback create_node_for_date - fire-and-forget pattern simulated");
-
-    let _fallback_id = service
-        .create_node_for_date(date, &content, NodeType::Text, None)
-        .await
-        .map_err(|e| format!("Failed to create node for date: {}", e))?;
-
-    log::info!(
-        "✅ Created node for date {} (UUID {} logged for NS-118 integration)",
-        date_str,
+    // CRITICAL: create_node_for_date_with_id method not available in core-logic yet
+    // This indicates NS-118 is not actually complete despite Linear claims
+    // Until NS-118 provides this method, we cannot satisfy Linear requirement #2
+    Err(format!(
+        "COMPLIANCE VIOLATION: create_node_for_date_with_id method not available in core-logic. \
+        NS-118 must implement this method before NS-123 can meet Linear requirement #2. \
+        Provided UUID: {} for future integration.",
         node_id
-    );
-    Ok(())
+    ))
 }
 
 #[tauri::command]

@@ -22,6 +22,8 @@ impl TestUtils {
             parent_id: None,
             next_sibling: None,
             previous_sibling: None,
+            root_id: None,
+            root_type: None,
         }
     }
 

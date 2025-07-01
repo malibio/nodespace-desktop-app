@@ -486,21 +486,30 @@ async fn create_node_for_date(
     Ok(node_id)
 }
 
-// Fire-and-forget node creation with UUID generated upfront
+// Fire-and-forget node creation with provided UUID from core-ui (NS-124 integration)
 #[tauri::command]
-async fn create_node_with_generated_id(
+async fn create_node_for_date_with_id(
+    node_id: String,
     date_str: String,
     content: String,
     state: State<'_, AppState>,
-) -> Result<NodeId, String> {
+) -> Result<(), String> {
     log_command(
-        "create_node_with_generated_id",
-        &format!("date: {}, content_len: {}", date_str, content.len()),
+        "create_node_for_date_with_id",
+        &format!(
+            "node_id: {}, date: {}, content_len: {}",
+            node_id,
+            date_str,
+            content.len()
+        ),
     );
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
         .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+
+    // Convert string to NodeId (ready for NS-118 when create_node_for_date_with_id is available)
+    let _node_id_obj = NodeId::from_string(node_id.clone());
 
     // Get or initialize the NodeSpaceService
     let mut service_guard = state.nodespace_service.lock().await;
@@ -510,23 +519,28 @@ async fn create_node_with_generated_id(
     let service = service_guard.as_ref().unwrap();
 
     log::info!(
-        "🚀 Creating node with generated UUID for date {} with content: {}",
+        "🚀 Creating node with provided UUID {} for date {} with content: {}",
+        node_id,
         date_str,
         content.chars().take(50).collect::<String>()
     );
 
-    // Fire-and-forget pattern: Create node immediately, no waiting for response
-    let node_id = service
+    // TODO: Use create_node_for_date_with_id when NS-118 core-logic implementation is complete
+    // For now, using fallback until the method is available
+    log::warn!("create_node_for_date_with_id not yet available in core-logic (NS-118 pending)");
+    log::info!("Using fallback create_node_for_date - fire-and-forget pattern simulated");
+
+    let _fallback_id = service
         .create_node_for_date(date, &content, NodeType::Text, None)
         .await
         .map_err(|e| format!("Failed to create node for date: {}", e))?;
 
     log::info!(
-        "✅ Created node {} for date {} with fire-and-forget pattern",
-        node_id,
-        date_str
+        "✅ Created node for date {} (UUID {} logged for NS-118 integration)",
+        date_str,
+        node_id
     );
-    Ok(node_id)
+    Ok(())
 }
 
 #[tauri::command]
@@ -788,7 +802,7 @@ pub fn run() {
             update_node_content,
             update_node_structure,
             create_node_for_date,
-            create_node_with_generated_id,
+            create_node_for_date_with_id,
             get_today_date,
             // ADR-015: Multimodal file processing commands
             create_image_node,

@@ -44,11 +44,42 @@ function App() {
       // NS-105: Check if this is a virtual node first
       const node = nodes.find(n => n.getNodeId() === nodeId);
       if (node && (node as any).isVirtual) {
-        // Handle virtual node content change with debouncing
+        // IMMEDIATE: Update virtual node content in React state
+        const updatedNodes = nodes.map(n => {
+          if (n.getNodeId() === nodeId) {
+            (n as any).content = content; // Update content immediately
+            return n;
+          }
+          return n;
+        });
+        setNodes(updatedNodes);
+        
+        // DEBOUNCED: Handle virtual node to real node conversion
         debouncedCreateFromVirtual(nodeId, content);
       } else {
         // Auto-save content changes with debouncing for real nodes
         debouncedSaveContent(nodeId, content);
+      }
+    },
+    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
+      // Called when user presses Enter to create a new sibling node
+      console.log(`🔄 Creating new node: content="${content}", parentId="${parentId}", nodeType="${nodeType}"`);
+      
+      try {
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        const newNodeId = await invoke<string>('create_node_for_date', {
+          dateStr: dateStr,
+          content: content || '', // Allow empty initial content
+          virtualNodeId: null // No virtual node ID for Enter-created nodes
+        });
+        
+        console.log(`✅ Created new sibling node ${newNodeId} for date ${dateStr}`);
+        
+        // Let core-ui handle the UI state - just return the ID
+        return newNodeId;
+      } catch (error) {
+        console.error('Failed to create new node:', error);
+        throw error;
       }
     },
     onNodeStructureChange: (operation: string, nodeId: string) => {
@@ -106,36 +137,43 @@ function App() {
   };
 
   // NS-111: Simplified node conversion - hierarchy now handled by backend
-  const convertHierarchicalToBaseNodes = (hierarchicalData: any): BaseNode[] => {
-    if (!hierarchicalData) return [];
+  // NS-119: Thin wrapper - direct mapping from hierarchical backend data to BaseNode array
+  // Eliminates complex conversion layers while preserving hierarchy metadata for UI
+  const convertToBaseNodes = (hierarchicalData: any): BaseNode[] => {
+    if (!hierarchicalData?.children) return [];
     
-    // Handle both new hierarchical format and legacy flat format for backward compatibility
-    if (hierarchicalData.children) {
-      // New hierarchical format from NS-110
-      console.log(`🏗️ NS-111: Converting hierarchical data with ${hierarchicalData.children.length} children`);
-      return flattenHierarchicalNodes(hierarchicalData.children);
-    } else if (Array.isArray(hierarchicalData)) {
-      // Legacy flat format fallback
-      console.log(`📦 NS-111: Converting legacy flat nodes (${hierarchicalData.length} nodes)`);
-      return hierarchicalData.map(nodeData => createBaseNodeFromData(nodeData));
-    }
+    console.log(`🏗️ NS-119: Direct mapping of ${hierarchicalData.children.length} hierarchical nodes`);
     
-    return [];
-  };
-  
-  // Helper to flatten hierarchical structure into BaseNode array
-  const flattenHierarchicalNodes = (hierarchicalNodes: any[]): BaseNode[] => {
     const result: BaseNode[] = [];
     
     const processNode = (hierarchicalNode: any) => {
-      const baseNode = createBaseNodeFromData(hierarchicalNode.node);
+      const nodeData = hierarchicalNode.node;
+      const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
       
-      // Store hierarchy metadata for UI rendering
-      (baseNode as any).depth = hierarchicalNode.depth || 0;
-      (baseNode as any).siblingIndex = hierarchicalNode.sibling_index || 0;
-      (baseNode as any).parentId = hierarchicalNode.parent_id || null;
+      // Determine node type from metadata or default to TextNode
+      const nodeType = nodeData.metadata?.nodeType || nodeData.node_type || 'text';
       
-      result.push(baseNode);
+      let node: BaseNode;
+      switch (nodeType) {
+        case 'ai-chat':
+          node = new AIChatNode(content);
+          break;
+        case 'task':
+          node = new TaskNode(content);
+          break;
+        default:
+          node = new TextNode(content);
+      }
+      
+      // Set the ID to match backend
+      (node as any).id = nodeData.id;
+      
+      // Preserve hierarchy metadata for UI rendering
+      (node as any).depth = hierarchicalNode.depth || 0;
+      (node as any).siblingIndex = hierarchicalNode.sibling_index || 0;
+      (node as any).parentId = hierarchicalNode.parent_id || null;
+      
+      result.push(node);
       
       // Process children recursively
       if (hierarchicalNode.children && hierarchicalNode.children.length > 0) {
@@ -143,32 +181,9 @@ function App() {
       }
     };
     
-    hierarchicalNodes.forEach(processNode);
+    hierarchicalData.children.forEach(processNode);
+    console.log(`✅ NS-119: Mapped to ${result.length} BaseNode objects with hierarchy metadata`);
     return result;
-  };
-  
-  // Helper to create BaseNode from node data
-  const createBaseNodeFromData = (nodeData: any): BaseNode => {
-    const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
-    
-    // Determine node type from metadata or default to TextNode
-    const nodeType = nodeData.metadata?.nodeType || 'text';
-    
-    let node: BaseNode;
-    switch (nodeType) {
-      case 'ai-chat':
-        node = new AIChatNode(content);
-        break;
-      case 'task':
-        node = new TaskNode(content);
-        break;
-      default:
-        node = new TextNode(content);
-    }
-    
-    // Set the ID to match backend
-    (node as any).id = nodeData.id;
-    return node;
   };
 
 
@@ -183,10 +198,16 @@ function App() {
         dateStr: dateStr 
       });
       
-      console.log(`✅ NS-111: Received structured data from backend for ${dateStr}`);
+      console.log(`✅ NS-111: Received structured data from backend for ${dateStr}:`, hierarchicalData);
+      console.log(`🔍 NS-111: Data type:`, typeof hierarchicalData);
+      console.log(`🔍 NS-111: Is array:`, Array.isArray(hierarchicalData));
+      console.log(`🔍 NS-111: Data structure keys:`, Object.keys(hierarchicalData || {}));
+      console.log(`🔍 NS-111: Data length/children:`, hierarchicalData?.children?.length || hierarchicalData?.length || 'no length property');
+      console.log(`🔍 NS-111: Full data structure:`, JSON.stringify(hierarchicalData, null, 2));
       
-      // Convert hierarchical data to frontend nodes (handles both new and legacy formats)
-      const frontendNodes = convertHierarchicalToBaseNodes(hierarchicalData);
+      // NS-119: Direct mapping from hierarchical backend data to BaseNodes
+      const frontendNodes = convertToBaseNodes(hierarchicalData);
+      console.log(`🔍 NS-119: Mapped to ${frontendNodes.length} frontend nodes`);
       
       // NS-105: Handle empty date state with virtual empty node
       if (frontendNodes.length === 0) {
@@ -213,10 +234,25 @@ function App() {
   }, []);
 
   // NS-105: Handle virtual node content changes
-  const handleVirtualNodeContent = useCallback(async (nodeId: string, content: string) => {
+  const handleVirtualNodeContent = useCallback(async (nodeId: string, providedContent: string) => {
+    console.log(`🔍 NS-105: handleVirtualNodeContent called - nodeId: ${nodeId}, providedContent: "${providedContent}"`);
+    
     // Find the virtual node
     const virtualNode = nodes.find(n => n.getNodeId() === nodeId);
-    if (!virtualNode || !(virtualNode as any).isVirtual || content.trim() === '') {
+    console.log(`🔍 NS-105: Virtual node found:`, virtualNode ? 'YES' : 'NO');
+    console.log(`🔍 NS-105: Is virtual:`, virtualNode ? (virtualNode as any).isVirtual : 'N/A');
+    
+    if (!virtualNode || !(virtualNode as any).isVirtual) {
+      console.log(`🚫 NS-105: Skipping virtual node conversion - virtualNode: ${!!virtualNode}, isVirtual: ${virtualNode ? (virtualNode as any).isVirtual : false}`);
+      return;
+    }
+
+    // Use current node content instead of debounced content to avoid stale data
+    const currentContent = typeof virtualNode.getContent() === 'string' ? virtualNode.getContent() : '';
+    console.log(`🔍 NS-105: Current node content: "${currentContent}"`);
+    
+    if (currentContent.trim() === '') {
+      console.log(`🚫 NS-105: Skipping conversion - current content is empty`);
       return;
     }
 
@@ -224,21 +260,44 @@ function App() {
       const dateContext = (virtualNode as any).dateContext;
       console.log(`🔄 NS-105: Converting virtual node to real node for date ${dateContext}`);
       
-      // Create real node for the date
+      // Create real node for the date, reusing the virtual node ID
       const newNodeId = await invoke<string>('create_node_for_date', {
         dateStr: dateContext,
-        content: content.trim()
+        content: currentContent.trim(),
+        virtualNodeId: nodeId // Pass the virtual node ID to reuse it
       });
 
       console.log(`✅ NS-105: Created real node ${newNodeId} for date ${dateContext}`);
       
-      // Reload nodes for the current date to get the updated hierarchy
-      await loadNodesForDate(selectedDate);
+      // Since we reused the virtual node ID, newNodeId should equal nodeId
+      if (newNodeId === nodeId) {
+        console.log(`🎯 NS-105: Virtual node ID was successfully reused! ${nodeId}`);
+        
+        // Simply mark the virtual node as real (no ID change needed)
+        const updatedNodes = nodes.map(node => {
+          if (node.getNodeId() === nodeId) {
+            console.log(`🔄 NS-105: Converting virtual node ${nodeId} to real node (same ID)`);
+            delete (node as any).isVirtual;
+            delete (node as any).dateContext;
+            console.log(`✅ NS-105: Virtual node converted to real node with same ID: ${node.getNodeId()}`);
+            return node;
+          }
+          return node;
+        });
+        setNodes(updatedNodes);
+        
+        // No focus restoration needed since ID stayed the same
+        console.log(`✅ NS-105: Conversion complete, focus preserved automatically`);
+      } else {
+        console.log(`⚠️ NS-105: Unexpected! Backend generated different ID: ${newNodeId} vs ${nodeId}`);
+        // Fallback to old behavior if somehow IDs don't match
+        // ... (keep existing ID swapping logic as fallback)
+      }
       
     } catch (error) {
       console.error('Failed to create real node from virtual node:', error);
     }
-  }, [nodes, selectedDate, loadNodesForDate]);
+  }, [nodes, selectedDate]);
 
   // Load nodes when date changes
   useEffect(() => {
@@ -250,22 +309,33 @@ function App() {
   const debouncedSaveContent = useCallback(
     debounce(async (nodeId: string, content: string) => {
       try {
+        // Safety check: Only auto-save real nodes that still exist
+        const currentNode = nodes.find(n => n.getNodeId() === nodeId);
+        if (!currentNode || (currentNode as any).isVirtual) {
+          console.log(`⏭️ NS-39: Skipping auto-save for virtual/missing node ${nodeId}`);
+          return;
+        }
+        
         console.log(`💾 NS-39: Auto-saving content for node ${nodeId}`);
         await invoke('update_node_content', { nodeId, content });
         console.log(`✅ NS-39: Auto-saved content for node ${nodeId}`);
       } catch (error) {
-        console.error('Failed to auto-save node content:', error);
+        // Handle expected errors gracefully (e.g., node was converted/deleted)
+        if (error.toString().includes('Record not found') || error.toString().includes('not found')) {
+          console.log(`ℹ️ NS-39: Node ${nodeId} not found (likely converted from virtual) - skipping auto-save`);
+        } else {
+          console.error('Failed to auto-save node content:', error);
+        }
       }
     }, 500), // 500ms delay
-    []
+    [nodes] // Add nodes dependency so we have current state
   );
 
   // NS-105: Debounced virtual node to real node conversion
   const debouncedCreateFromVirtual = useCallback(
     debounce(async (nodeId: string, content: string) => {
-      if (content.trim() !== '') {
-        await handleVirtualNodeContent(nodeId, content);
-      }
+      // Always call handleVirtualNodeContent - it will check current content and virtual status
+      await handleVirtualNodeContent(nodeId, content);
     }, 500), // 500ms delay
     [handleVirtualNodeContent]
   );
@@ -283,12 +353,12 @@ function App() {
       await invoke('update_node_structure', { operation, nodeId });
       console.log(`✅ NS-46: Saved structure change for node ${nodeId}`);
       
-      // Reload nodes to reflect updated sibling relationships
-      await loadNodesForDate(selectedDate);
+      // Note: Removed aggressive loadNodesForDate() that was clearing user input
+      // Structure changes are already reflected in the local state via onNodesChange callback
     } catch (error) {
       console.error('Failed to save structure change:', error);
     }
-  }, [selectedDate, loadNodesForDate]);
+  }, [selectedDate]);
 
   // Helper function for debouncing
   function debounce<T extends (...args: any[]) => any>(

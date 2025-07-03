@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { TextNode, BaseNode, TaskNode, AIChatNode } from 'nodespace-core-ui';
 import NodeSpaceEditor from 'nodespace-core-ui';
 import { NodeSpaceCallbacks } from 'nodespace-core-ui';
@@ -12,7 +12,6 @@ import './App.css';
 function App() {
   // Start with empty nodes, proper date-based loading happens in useEffect
   const [nodes, setNodes] = useState<BaseNode[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
   
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   
@@ -35,49 +34,254 @@ function App() {
     });
   }, []);
 
+  // Debounced auto-save for content changes - fire-and-forget pattern
+  // Use useMemo to create debounced function only once
+  const debouncedSaveContent = useMemo(
+    () => debounce(async (nodeId: string, content: string) => {
+      try {
+        // All nodes are real nodes now - no virtual node checks needed
+        await invoke('update_node_content', { nodeId, content });
+      } catch (error) {
+        // Handle expected errors gracefully (e.g., node was deleted)
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (!errorMessage.includes('Record not found') && !errorMessage.includes('not found')) {
+          console.error('Failed to auto-save node content:', error);
+        }
+      }
+    }, 500), // 500ms delay
+    [] // Empty deps = create once and never recreate
+  );
 
-  // NS-124 Integration: Use actual onNodeCreateWithId callback interface
-  const callbacks: NodeSpaceCallbacks = {
+  // Handle node deletion with backend persistence
+  const handleNodeDeletion = useCallback(async (nodeId: string, deletionContext?: any) => {
+    try {
+      console.log(`💾 Sending deletion to backend: ${nodeId.slice(0, 8)}...`);
+      console.log(`📤 Deletion context:`, deletionContext);
+      
+      await invoke('delete_node', {
+        nodeId: nodeId,
+        deletionContext: deletionContext || {}
+      });
+      
+      console.log(`✅ Node deletion persisted successfully`);
+    } catch (error) {
+      console.error('Failed to persist node deletion:', error);
+      // Note: Core-UI has already removed the node from the UI tree
+      // In case of backend failure, the deletion remains in the UI but not in database
+      // This is acceptable for the fire-and-forget pattern
+    }
+  }, []);
+
+  // Enhanced AIChatNode query handler with metadata storage
+  const handleAIChatQuery = useCallback(async (request: any) => {
+    console.log(`🚀 ===== onAIChatQuery TRIGGERED =====`);
+    console.log(`🤖 AI Chat Query received: "${request.query}"`);
+    console.log(`🎯 Node ID: ${request.node_id?.slice(0, 8) || 'unknown'}`);
+    console.log(`💬 Current content: "${request.current_content || 'N/A'}"`);
+    
+    const startTime = Date.now();
+    
+    try {
+      console.log(`🔍 Processing RAG query: "${request.query}"`);
+      
+      // Use enhanced process_query Tauri command for full RAG pipeline
+      const queryResponse = await invoke<{
+        answer: string;
+        sources: any[];
+        confidence: number;
+        generation_time_ms?: number;
+        overall_confidence?: number;
+      }>('process_query', {
+        question: request.query.trim()
+      });
+      
+      const endTime = Date.now();
+      const actualGenerationTime = queryResponse.generation_time_ms || (endTime - startTime);
+      
+      console.log(`✅ RAG query processing completed in ${actualGenerationTime}ms`);
+      console.log(`📊 Confidence: ${queryResponse.confidence}`);
+      console.log(`📚 Found ${queryResponse.sources.length} source(s)`);
+      console.log(`💬 AI Answer: "${queryResponse.answer.slice(0, 100)}..."`);
+      
+      // Prepare simplified metadata structure for storage
+      const questionTimestamp = new Date().toISOString();
+      const responseTimestamp = new Date().toISOString();
+      
+      const enhancedMetadata = {
+        question: request.query,
+        question_timestamp: questionTimestamp,
+        response: queryResponse.answer,
+        response_timestamp: responseTimestamp,
+        generation_time_ms: actualGenerationTime,
+        overall_confidence: queryResponse.overall_confidence || queryResponse.confidence,
+        node_sources: queryResponse.sources.map(source => ({
+          node_id: source.id?.toString() || 'unknown',
+          content: source.content?.toString() || 'No content available',
+          retrieval_score: source.score || 0,
+          context_tokens: Math.ceil((source.content?.toString().length || 0) / 4), // Approximate
+          node_type: source.node_type || 'text',
+          last_modified: source.last_modified || new Date().toISOString()
+        })),
+        error: null
+      };
+      
+      // Save metadata using onNodeUpdate if we have node context
+      if (request.node_id && request.current_content !== undefined) {
+        console.log(`💾 Saving AIChatNode metadata for node ${request.node_id.slice(0, 8)}...`);
+        
+        // Save directly via Tauri (Core-UI will eventually trigger onNodeUpdate)
+        setTimeout(() => {
+          invoke('upsert_node', {
+            nodeId: request.node_id,
+            dateStr: selectedDate.toISOString().split('T')[0],
+            content: request.current_content,
+            parentId: request.parent_id || null,
+            beforeSiblingId: request.before_sibling_id || null,
+            nodeType: 'ai-chat',
+            metadata: enhancedMetadata
+          }).catch(error => {
+            console.error('Failed to save AIChatNode metadata:', error);
+          });
+        }, 0);
+      }
+      
+      // Convert to RAGQueryResponse format expected by Core-UI
+      const ragResponse = {
+        message_id: `msg_${Date.now()}`,
+        content: queryResponse.answer,
+        rag_context: {
+          sources_used: enhancedMetadata.node_sources,
+          retrieval_score: queryResponse.confidence,
+          context_tokens: enhancedMetadata.node_sources.reduce((sum, source) => sum + source.context_tokens, 0),
+          generation_time_ms: actualGenerationTime,
+          knowledge_summary: `Found ${queryResponse.sources.length} relevant knowledge sources`
+        }
+      };
+      
+      console.log(`📤 Returning RAG response with enhanced metadata`);
+      return ragResponse;
+      
+    } catch (error) {
+      console.error('AI Chat query failed:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ RAG query processing failed: ${errorMessage}`);
+      
+      // Save error metadata if we have node context
+      if (request.node_id && request.current_content !== undefined) {
+        const errorMetadata = {
+          question: request.query,
+          question_timestamp: new Date().toISOString(),
+          response: "I encountered an error processing your question.",
+          response_timestamp: new Date().toISOString(),
+          generation_time_ms: Date.now() - startTime,
+          overall_confidence: 0.0,
+          node_sources: [],
+          error: errorMessage
+        };
+        
+        // Save error state
+        invoke('upsert_node', {
+          nodeId: request.node_id,
+          dateStr: selectedDate.toISOString().split('T')[0],
+          content: request.current_content,
+          parentId: request.parent_id || null,
+          beforeSiblingId: request.before_sibling_id || null,
+          nodeType: 'ai-chat',
+          metadata: errorMetadata
+        }).catch(console.error);
+      }
+      
+      // Still return error to Core-UI for user feedback
+      throw new Error(`RAG processing failed: ${errorMessage}`);
+    }
+  }, [selectedDate]);
+
+  // Single Callback Integration: Replace all callbacks with unified onNodeUpdate
+  // Memoize callbacks to prevent Core-UI ContentPersistenceManager from recreating
+  const callbacks: NodeSpaceCallbacks = useMemo(() => {
+    const callbacksObj = {
     onNodesChange: (newNodes: BaseNode[]) => {
       setNodes(newNodes);
     },
-    onNodeChange: (nodeId: string, content: string) => {
-      // Fire-and-forget pattern: All nodes are real, just debounce auto-save
-      debouncedSaveContent(nodeId, content);
-    },
-    // NEW: NS-124 callback interface - Frontend provides UUID, backend uses it
-    onNodeCreateWithId: (nodeId: string, content: string, parentId?: string) => {
+    
+    // SINGLE UNIFIED CALLBACK: Handles all node operations
+    onNodeUpdate: (nodeId: string, nodeData: {
+      content: string;
+      parentId?: string;
+      beforeSiblingId?: string;
+      nodeType: string;
+      metadata?: any;
+    }) => {
+      console.log(`🔄 onNodeUpdate called:`);
+      console.log(`   Node ID: ${nodeId.slice(0, 8)}...`);
+      console.log(`   Content: '${nodeData.content}'`);
+      console.log(`   Parent ID: ${nodeData.parentId?.slice(0, 8) || 'null'}`);
+      console.log(`   Before Sibling: ${nodeData.beforeSiblingId?.slice(0, 8) || 'null'}`);
+      console.log(`   Node Type: ${nodeData.nodeType}`);
+      console.log(`   Has Metadata: ${!!nodeData.metadata}`);
+      
       try {
         const dateStr = selectedDate.toISOString().split('T')[0];
         
-        // Fire-and-forget: Use create_node_for_date_with_id (NS-124 pattern)
-        invoke('create_node_for_date_with_id', {
+        // Use unified upsert command for all node operations
+        invoke('upsert_node', {
           nodeId: nodeId,
           dateStr: dateStr,
-          content: content || '',
+          content: nodeData.content,
+          parentId: nodeData.parentId || null,
+          beforeSiblingId: nodeData.beforeSiblingId || null,
+          nodeType: nodeData.nodeType,
+          metadata: nodeData.metadata || null
         }).catch(error => {
-          console.error('Background node creation failed (fire-and-forget):', error);
+          console.error('Node upsert failed:', error);
         });
         
-        // Return Promise<void> for fire-and-forget pattern
-        return Promise.resolve();
       } catch (error) {
-        console.error('Failed to process node creation:', error);
-        return Promise.reject(error);
+        console.error('Failed to process node update:', error);
       }
     },
-    // LEGACY: Keep old callback for compatibility until core-ui migration complete
-    onNodeCreate: async (content: string, parentId?: string, nodeType?: string) => {
-      // Legacy fallback - generate UUID and delegate to onNodeCreateWithId
-      const nodeId = crypto.randomUUID();
-      await callbacks.onNodeCreateWithId?.(nodeId, content, parentId);
-      return nodeId;
+    
+    // Keep semantic search for text nodes
+    onSemanticSearch: async (question: string, nodeId: string): Promise<string> => {
+      console.log(`🔥 ===== onSemanticSearch TRIGGERED =====`);
+      console.log(`🔍 Semantic search request: "${question}" from node ${nodeId.slice(0, 8)}...`);
+      
+      try {
+        // Use existing process_query Tauri command which implements RAG pipeline
+        const queryResponse = await invoke<{
+          answer: string;
+          sources: any[];
+          confidence: number;
+        }>('process_query', {
+          question: question
+        });
+        
+        console.log(`✅ Semantic search completed with confidence: ${queryResponse.confidence}`);
+        console.log(`📚 Found ${queryResponse.sources.length} source(s)`);
+        
+        // Return the plain text answer - Core-UI handles all formatting
+        return queryResponse.answer;
+      } catch (error) {
+        console.error('Semantic search failed:', error);
+        // Throw error - Core-UI will catch and display user-friendly message
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Semantic search failed: ${errorMessage}`);
+      }
     },
-    onNodeStructureChange: (operation: string, nodeId: string) => {
-      // Immediately save structure changes (parent/child relationships)
-      saveStructureChange(operation, nodeId);
-    }
+    
+    // Enhanced AIChatQuery with metadata storage
+    onAIChatQuery: handleAIChatQuery
   };
+  
+  // Debug: Log callback registration (uncomment if needed)
+  // console.log(`📋 Callbacks registered:`, {
+  //   onAIChatQuery: !!callbacksObj.onAIChatQuery,
+  //   onSemanticSearch: !!callbacksObj.onSemanticSearch,
+  //   onNodeChange: !!callbacksObj.onNodeChange
+  // });
+  
+  return callbacksObj;
+  }, [selectedDate, debouncedSaveContent, handleNodeDeletion, handleAIChatQuery]); // Include dependencies that callbacks use
 
   const handleFocus = (nodeId: string) => {
     setFocusedNodeId(nodeId);
@@ -127,57 +331,58 @@ function App() {
     });
   };
 
-  // Simplified node conversion - hierarchy handled by backend
-  // Direct mapping from hierarchical backend data to BaseNode array
+  // Convert hierarchical backend data to Core-UI BaseNode tree structure
   const convertToBaseNodes = (hierarchicalData: any): BaseNode[] => {
     if (!hierarchicalData?.children) return [];
     
-    const result: BaseNode[] = [];
+    const nodeMap = new Map<string, BaseNode>();
+    const rootNodes: BaseNode[] = [];
     
-    const processNode = (hierarchicalNode: any) => {
+    const processNode = (hierarchicalNode: any, parentNode?: BaseNode) => {
       const nodeData = hierarchicalNode.node;
       const content = typeof nodeData.content === 'string' ? nodeData.content : JSON.stringify(nodeData.content);
       
-      // Determine node type from metadata or default to TextNode
-      const nodeType = nodeData.metadata?.nodeType || nodeData.node_type || 'text';
+      // Determine node type from the current structure
+      const nodeType = nodeData.type || 'text';
       
       let node: BaseNode;
       switch (nodeType) {
         case 'ai-chat':
-          node = new AIChatNode(content);
+          node = new AIChatNode(content, nodeData.id);
           break;
         case 'task':
-          node = new TaskNode(content);
+          node = new TaskNode(content, nodeData.id);
           break;
         default:
-          node = new TextNode(content);
+          node = new TextNode(content, nodeData.id);
       }
       
-      // Set the ID to match backend
-      (node as any).id = nodeData.id;
+      // Store node in map for reference
+      nodeMap.set(nodeData.id, node);
       
-      // Preserve hierarchy metadata for UI rendering
-      (node as any).depth = hierarchicalNode.depth || 0;
-      (node as any).siblingIndex = hierarchicalNode.sibling_index || 0;
-      (node as any).parentId = hierarchicalNode.parent_id || null;
+      // Build parent-child relationships
+      if (parentNode) {
+        parentNode.addChild(node);
+      } else {
+        rootNodes.push(node);
+      }
       
-      result.push(node);
-      
-      // Process children recursively
+      // Process children recursively, passing current node as parent
       if (hierarchicalNode.children && hierarchicalNode.children.length > 0) {
-        hierarchicalNode.children.forEach(processNode);
+        hierarchicalNode.children.forEach((childHierarchicalNode: any) => {
+          processNode(childHierarchicalNode, node);
+        });
       }
     };
     
-    hierarchicalData.children.forEach(processNode);
-    return result;
+    hierarchicalData.children.forEach((child: any) => processNode(child));
+    return rootNodes;
   };
 
 
   // Simplified date loading using hierarchical API from backend
   const loadNodesForDate = useCallback(async (date: Date) => {
     try {
-      setLoading(true);
       const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
       
       const hierarchicalData = await invoke<any>('get_nodes_for_date', { 
@@ -187,77 +392,64 @@ function App() {
       // Direct mapping from hierarchical backend data to BaseNodes
       const frontendNodes = convertToBaseNodes(hierarchicalData);
       
-      // Immediate date node creation: If empty date, create a real empty node for UX
-      if (frontendNodes.length === 0) {
-        try {
-          console.log(`📝 Creating immediate date node for empty date: ${dateStr}`);
-          
-          // Generate UUID upfront (NS-124 pattern)
-          const nodeId = crypto.randomUUID();
-          
-          // Fire-and-forget: Create node in background using create_node_for_date_with_id
-          invoke('create_node_for_date_with_id', {
-            nodeId: nodeId,
-            dateStr: dateStr,
-            content: '', // Start with empty content - user can type immediately
-          }).catch(error => {
-            console.error('Background immediate node creation failed (fire-and-forget):', error);
-          });
-          
-          // Create a real node in UI state immediately with generated UUID
-          const newNode = new TextNode('');
-          (newNode as any).id = nodeId;
-          setNodes([newNode]);
-        } catch (error) {
-          console.error('Failed to create immediate date node:', error);
-          // Fallback to empty interface
-          setNodes([]);
-        }
-      } else {
-        setNodes(frontendNodes);
-      }
+      // Let Core-UI handle empty state automatically - pass whatever we get
+      console.log(`📊 Setting nodes for ${dateStr}:`, frontendNodes.length, 'nodes');
+      setNodes(frontendNodes);
     } catch (error) {
       console.error('Failed to load hierarchical data for date:', error);
       // On error, just show empty interface
       setNodes([]);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   // Removed handleVirtualNodeContent - no longer needed with fire-and-forget pattern
 
-  // Load nodes when date changes
+  // Load nodes when date changes (remove loadNodesForDate dependency to prevent excessive calls)
   useEffect(() => {
     // ONNX migration is complete - re-enabling date navigation
     loadNodesForDate(selectedDate);
-  }, [selectedDate, loadNodesForDate]);
-
-  // Debounced auto-save for content changes - fire-and-forget pattern
-  const debouncedSaveContent = useCallback(
-    debounce(async (nodeId: string, content: string) => {
-      try {
-        // All nodes are real nodes now - no virtual node checks needed
-        await invoke('update_node_content', { nodeId, content });
-      } catch (error) {
-        // Handle expected errors gracefully (e.g., node was deleted)
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (!errorMessage.includes('Record not found') && !errorMessage.includes('not found')) {
-          console.error('Failed to auto-save node content:', error);
-        }
-      }
-    }, 500), // 500ms delay
-    [] // No dependencies needed for fire-and-forget pattern
-  );
+  }, [selectedDate]); // Only depend on selectedDate, not the function
 
   // Removed debouncedCreateFromVirtual - no longer needed with fire-and-forget pattern
 
-  // Immediate save for structure changes including sibling relationships
-  const saveStructureChange = useCallback(async (operation: string, nodeId: string) => {
+  // Immediate save for structure changes with comprehensive hierarchy details
+  const saveStructureChange = useCallback(async (operation: string, nodeId: string, details?: any) => {
     try {
-      await invoke('update_node_structure', { operation, nodeId });
+      console.log(`💾 Saving structure change: ${operation} for node ${nodeId.slice(0, 8)}...`);
       
-      // Note: Structure changes are already reflected in the local state via onNodesChange callback
+      // Extract hierarchy information from Core-UI details object
+      const parentId = details?.newParentId || details?.parentId || null;
+      const formerParentId = details?.formerParentId || null;
+      const hierarchyLevel = details?.hierarchyLevel || 0;
+      const nodeContent = details?.nodeContent || '';
+      const nodeType = details?.nodeType || 'text';
+      const timestamp = details?.timestamp || new Date().toISOString();
+      const beforeSiblingId = details?.beforeSiblingId || null;
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      
+      console.log(`📤 Sending to backend:`);
+      console.log(`   Operation: ${operation}`);
+      console.log(`   Node ID: ${nodeId.slice(0, 8)}...`);
+      console.log(`   New Parent ID: ${parentId?.slice(0, 8) || 'null'}`);
+      console.log(`   Former Parent ID: ${formerParentId?.slice(0, 8) || 'null'}`);
+      console.log(`   Hierarchy Level: ${hierarchyLevel}`);
+      console.log(`   Before Sibling ID: ${beforeSiblingId?.slice(0, 8) || 'null'}`);
+      console.log(`   Date: ${dateStr}`);
+      
+      await invoke('update_node_structure', { 
+        operation, 
+        nodeId, 
+        parentId,
+        formerParentId,
+        hierarchyLevel,
+        nodeContent,
+        nodeType,
+        timestamp,
+        dateStr,
+        beforeSiblingId
+      });
+      console.log(`✅ Structure change saved successfully`);
+      
     } catch (error) {
       console.error('Failed to save structure change:', error);
     }
@@ -309,16 +501,17 @@ function App() {
         </button>
       </div>
 
-      <NodeSpaceEditor
-        nodes={nodes}
-        focusedNodeId={focusedNodeId}
-        callbacks={callbacks}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onRemoveNode={handleRemoveNode}
-        collapsedNodes={collapsedNodes}
-        onCollapseChange={handleCollapseChange}
-      />
+      <div className="editor-container">
+        <NodeSpaceEditor
+          nodes={nodes}
+          callbacks={callbacks}
+          focusedNodeId={focusedNodeId}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          onRemoveNode={handleRemoveNode}
+          collapsibleNodeTypes={new Set(['text', 'task', 'date', 'entity', 'image'])}
+        />
+      </div>
     </div>
   );
 }

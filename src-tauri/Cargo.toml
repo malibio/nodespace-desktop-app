@@ -46,4 +46,7 @@ nodespace-core-types = { path = "../../nodespace-core-types" }
 # Full features enabled - unified Candle stack resolves Metal compilation issues
 nodespace-core-logic = { path = "../../nodespace-core-logic" }
 nodespace-data-store = { path = "../../nodespace-data-store" }
-nodespace-nlp-engine = { path = "../../nodespace-nlp-engine" }
+nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", features = ["real-ml"] }
+
+# Force consistent ort version to resolve fastembed vs nlp-engine conflict
+ort = "=2.0.0-rc.9"

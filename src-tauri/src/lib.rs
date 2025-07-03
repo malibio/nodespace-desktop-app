@@ -95,20 +95,22 @@ async fn initialize_nodespace_service(
     // Database and model paths
     let db_path = "/Users/malibio/nodespace/data/lance_db";
     let models_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()  // /Users/malibio/nodespace/nodespace-desktop-app
+        .parent() // /Users/malibio/nodespace/nodespace-desktop-app
         .unwrap()
-        .parent()  // /Users/malibio/nodespace
+        .parent() // /Users/malibio/nodespace
         .unwrap()
         .join("models");
-    
+
     log::info!("🔍 Initializing service with database: {}", db_path);
-    log::info!("🔍 Initializing service with models: {}", models_dir.display());
-    
+    log::info!(
+        "🔍 Initializing service with models: {}",
+        models_dir.display()
+    );
+
     // Use factory method that properly wires NLP engine to data store for embedding generation
-    let service = NodeSpaceService::create_with_paths(
-        db_path,
-        Some(models_dir.to_str().unwrap())
-    ).await.map_err(|e| format!("Failed to initialize NodeSpaceService: {}", e))?;
+    let service = NodeSpaceService::create_with_paths(db_path, Some(models_dir.to_str().unwrap()))
+        .await
+        .map_err(|e| format!("Failed to initialize NodeSpaceService: {}", e))?;
 
     // Initialize the service
     service
@@ -331,8 +333,11 @@ async fn get_nodes_for_date(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
-    
-    log::info!("🔍 DEBUG: get_nodes_for_date called with date: {}", date_str);
+
+    log::info!(
+        "🔍 DEBUG: get_nodes_for_date called with date: {}",
+        date_str
+    );
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -347,7 +352,7 @@ async fn get_nodes_for_date(
 
     // Use hierarchical API with fallback to flat nodes
     log::info!("🚀 DEBUG: About to call service.get_hierarchical_nodes_for_date");
-    
+
     match service.get_hierarchical_nodes_for_date(date).await {
         Ok(hierarchical_data) => {
             log::info!("✅ DEBUG: get_hierarchical_nodes_for_date succeeded");
@@ -356,13 +361,21 @@ async fn get_nodes_for_date(
                 date_str,
                 hierarchical_data.children.len()
             );
-            
+
             // DEBUG: Log each child found
             for (i, child) in hierarchical_data.children.iter().enumerate() {
-                log::info!("  📝 Child {}: ID={}, content='{}'", 
-                    i, 
-                    child.node.id, 
-                    child.node.content.as_str().unwrap_or("N/A").chars().take(50).collect::<String>()
+                log::info!(
+                    "  📝 Child {}: ID={}, content='{}'",
+                    i,
+                    child.node.id,
+                    child
+                        .node
+                        .content
+                        .as_str()
+                        .unwrap_or("N/A")
+                        .chars()
+                        .take(50)
+                        .collect::<String>()
                 );
             }
 
@@ -370,7 +383,10 @@ async fn get_nodes_for_date(
                 .map_err(|e| format!("Failed to serialize hierarchical data: {}", e))
         }
         Err(e) => {
-            log::warn!("⚠️ DEBUG: get_hierarchical_nodes_for_date failed with: {}", e);
+            log::warn!(
+                "⚠️ DEBUG: get_hierarchical_nodes_for_date failed with: {}",
+                e
+            );
             log::warn!(
                 "⚠️ Hierarchical API failed for date {}, falling back to flat nodes: {}",
                 date_str,
@@ -389,13 +405,19 @@ async fn get_nodes_for_date(
                 nodes.len(),
                 date_str
             );
-            
+
             // DEBUG: Log each node found in fallback
             for (i, node) in nodes.iter().enumerate() {
-                log::info!("  📝 Fallback Node {}: ID={}, content='{}'", 
-                    i, 
-                    node.id, 
-                    node.content.as_str().unwrap_or("N/A").chars().take(50).collect::<String>()
+                log::info!(
+                    "  📝 Fallback Node {}: ID={}, content='{}'",
+                    i,
+                    node.id,
+                    node.content
+                        .as_str()
+                        .unwrap_or("N/A")
+                        .chars()
+                        .take(50)
+                        .collect::<String>()
                 );
             }
 
@@ -441,6 +463,7 @@ async fn update_node_content(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn update_node_structure(
     operation: String,
     node_id: String,
@@ -457,10 +480,10 @@ async fn update_node_structure(
     log_command(
         "update_node_structure",
         &format!(
-            "operation: {}, node_id: {}, parent_id: {:?}, former_parent_id: {:?}, hierarchy_level: {}, content: '{}', type: {}, timestamp: {}, date_str: {}, before_sibling_id: {:?}", 
-            operation, 
-            node_id, 
-            parent_id, 
+            "operation: {}, node_id: {}, parent_id: {:?}, former_parent_id: {:?}, hierarchy_level: {}, content: '{}', type: {}, timestamp: {}, date_str: {}, before_sibling_id: {:?}",
+            operation,
+            node_id,
+            parent_id,
             former_parent_id,
             hierarchy_level,
             node_content.chars().take(30).collect::<String>(),
@@ -490,28 +513,32 @@ async fn update_node_structure(
     );
 
     // Convert before_sibling_id to NodeId if provided
-    let before_sibling_node_id = before_sibling_id.as_ref().map(|id| NodeId::from_string(id.clone()));
-    
+    let before_sibling_node_id = before_sibling_id
+        .as_ref()
+        .map(|id| NodeId::from_string(id.clone()));
+
     // Implement specific relationship updates based on operation type
     match operation.as_str() {
         "indent" => {
             // Convert parent_id string to NodeId if provided
             let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
-            
+
             // Set the new parent relationship
             _service
                 .set_node_parent(&node_id_obj, parent_node_id.as_ref())
                 .await
                 .map_err(|e| format!("Failed to indent node: {}", e))?;
-                
+
             // Update sibling positioning if before_sibling_id is provided
             if before_sibling_node_id.is_some() {
                 _service
                     .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
                     .await
-                    .map_err(|e| format!("Failed to update sibling order for indent operation: {}", e))?;
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for indent operation: {}", e)
+                    })?;
             }
-                
+
             log::info!(
                 "✅ Successfully indented node {} under parent {:?}, before sibling {:?}",
                 node_id,
@@ -525,27 +552,29 @@ async fn update_node_structure(
                 .set_node_parent(&node_id_obj, None)
                 .await
                 .map_err(|e| format!("Failed to outdent node: {}", e))?;
-                
+
             log::info!("✅ Successfully outdented node {} to root level", node_id);
         }
         "move" | "reorder" | "position" => {
             // Handle sibling positioning and parent changes
             let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
-            
+
             // Update parent relationship
             _service
                 .set_node_parent(&node_id_obj, parent_node_id.as_ref())
                 .await
                 .map_err(|e| format!("Failed to update parent for move operation: {}", e))?;
-                
+
             // Update sibling positioning if before_sibling_id is provided
             if before_sibling_node_id.is_some() {
                 _service
                     .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
                     .await
-                    .map_err(|e| format!("Failed to update sibling order for move operation: {}", e))?;
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for move operation: {}", e)
+                    })?;
             }
-            
+
             log::info!(
                 "✅ Successfully moved node {} to parent {:?}, before sibling {:?}",
                 node_id,
@@ -556,20 +585,22 @@ async fn update_node_structure(
         "create_child" | "add_child" => {
             // Handle child creation structure changes (if Core-UI sends these)
             let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
-            
+
             _service
                 .set_node_parent(&node_id_obj, parent_node_id.as_ref())
                 .await
                 .map_err(|e| format!("Failed to set parent for child creation: {}", e))?;
-                
+
             // Update sibling positioning if before_sibling_id is provided
             if before_sibling_node_id.is_some() {
                 _service
                     .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
                     .await
-                    .map_err(|e| format!("Failed to update sibling order for child creation: {}", e))?;
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for child creation: {}", e)
+                    })?;
             }
-                
+
             log::info!(
                 "✅ Successfully set parent for child creation: node {} under parent {:?}, before sibling {:?}",
                 node_id,
@@ -578,15 +609,24 @@ async fn update_node_structure(
             );
         }
         _ => {
-            log::warn!("🔄 Unhandled structure operation: '{}' for node {}", operation, node_id);
+            log::warn!(
+                "🔄 Unhandled structure operation: '{}' for node {}",
+                operation,
+                node_id
+            );
             log::warn!("   Available operations: indent, outdent, move, reorder, position, create_child, add_child");
             log::warn!("   If this is a valid operation, please add it to the match statement");
-            
+
             // Still try to handle basic parent relationship update as fallback
             if let Some(parent_id) = parent_id.as_ref() {
                 let parent_node_id = NodeId::from_string(parent_id.clone());
-                match _service.set_node_parent(&node_id_obj, Some(&parent_node_id)).await {
-                    Ok(_) => log::info!("✅ Fallback: Updated parent relationship for unknown operation"),
+                match _service
+                    .set_node_parent(&node_id_obj, Some(&parent_node_id))
+                    .await
+                {
+                    Ok(_) => {
+                        log::info!("✅ Fallback: Updated parent relationship for unknown operation")
+                    }
                     Err(e) => log::error!("❌ Fallback failed: {}", e),
                 }
             }
@@ -615,7 +655,7 @@ async fn delete_node(
     let service = service_guard.as_ref().unwrap();
 
     let node_id_obj = NodeId::from_string(node_id.clone());
-    
+
     log::info!(
         "🗑️ Deleting node {} with context: {}",
         node_id,
@@ -639,7 +679,11 @@ async fn delete_node(
 
     // Call the lean deletion method from core-logic
     service
-        .delete_node_with_children_transfer(&node_id_obj, children_ids, children_transferred_to.as_ref())
+        .delete_node_with_children_transfer(
+            &node_id_obj,
+            children_ids,
+            children_transferred_to.as_ref(),
+        )
         .await
         .map_err(|e| format!("Failed to delete node: {}", e))?;
 
@@ -715,7 +759,7 @@ async fn create_node_for_date_with_id(
             before_sibling_id
         ),
     );
-    
+
     log::info!("🔍 DEBUG: create_node_for_date_with_id called with:");
     log::info!("  📝 Node ID: {}", node_id);
     log::info!("  📅 Date: {}", date_str);
@@ -747,8 +791,8 @@ async fn create_node_for_date_with_id(
     );
 
     // Convert parent_id string to NodeId if provided
-    let parent_node_id = parent_id.map(|id| NodeId::from_string(id));
-    
+    let parent_node_id = parent_id.map(NodeId::from_string);
+
     // Convert node_type string to NodeType enum (using data-store variants)
     let node_type_enum = match node_type.as_deref() {
         Some("task") => NodeType::Task,
@@ -756,25 +800,27 @@ async fn create_node_for_date_with_id(
         Some("date") => NodeType::Date,
         _ => NodeType::Text, // Default to Text (only 4 variants available)
     };
-    
+
     // Convert before_sibling_id string to NodeId if provided
-    let before_sibling_node_id = before_sibling_id.map(|id| NodeId::from_string(id));
-    
+    let before_sibling_node_id = before_sibling_id.map(NodeId::from_string);
+
     // Use enhanced core-logic API with hierarchy support
-    log::info!("🚀 DEBUG: About to call service.create_node_for_date_with_id with enhanced parameters");
-    
+    log::info!(
+        "🚀 DEBUG: About to call service.create_node_for_date_with_id with enhanced parameters"
+    );
+
     let result = service
         .create_node_for_date_with_id(
-            node_id_obj,                  // node_id
-            date,                         // date
-            &content,                     // content
-            node_type_enum,               // node_type
-            None,                         // metadata (not used for text/date nodes)
-            parent_node_id,               // parent_id
-            before_sibling_node_id        // before_sibling_id
+            node_id_obj,            // node_id
+            date,                   // date
+            &content,               // content
+            node_type_enum,         // node_type
+            None,                   // metadata (not used for text/date nodes)
+            parent_node_id,         // parent_id
+            before_sibling_node_id, // before_sibling_id
         )
         .await;
-        
+
     match result {
         Ok(_) => {
             log::info!("✅ DEBUG: service.create_node_for_date_with_id succeeded");
@@ -786,7 +832,10 @@ async fn create_node_for_date_with_id(
             Ok(())
         }
         Err(e) => {
-            log::error!("❌ DEBUG: service.create_node_for_date_with_id failed with error: {}", e);
+            log::error!(
+                "❌ DEBUG: service.create_node_for_date_with_id failed with error: {}",
+                e
+            );
             Err(format!("Failed to create node with provided ID: {}", e))
         }
     }
@@ -800,6 +849,7 @@ async fn get_today_date() -> Result<String, String> {
 
 // Unified node management command for single callback architecture
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn upsert_node(
     node_id: String,
     date_str: String,
@@ -827,11 +877,21 @@ async fn upsert_node(
     log::info!("🔄 UNIFIED UPSERT: Processing node operation");
     log::info!("   📝 Node ID: {}", node_id);
     log::info!("   📅 Date: {}", date_str);
-    log::info!("   📄 Content: '{}'", content.chars().take(50).collect::<String>());
+    log::info!(
+        "   📄 Content: '{}'",
+        content.chars().take(50).collect::<String>()
+    );
     log::info!("   🏷️ Type: {}", node_type);
     log::info!("   👨‍👩‍👧‍👦 Parent: {:?}", parent_id);
     log::info!("   🔗 Before Sibling: {:?}", before_sibling_id);
-    log::info!("   📊 Metadata: {}", if metadata.is_some() { "present" } else { "none" });
+    log::info!(
+        "   📊 Metadata: {}",
+        if metadata.is_some() {
+            "present"
+        } else {
+            "none"
+        }
+    );
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -857,27 +917,49 @@ async fn upsert_node(
     };
 
     // Convert parent_id and before_sibling_id to NodeId objects
-    let parent_node_id = parent_id.map(|id| NodeId::from_string(id));
-    let before_sibling_node_id = before_sibling_id.map(|id| NodeId::from_string(id));
+    let parent_node_id = parent_id.map(NodeId::from_string);
+    let before_sibling_node_id = before_sibling_id.map(NodeId::from_string);
 
     // Special handling for AIChatNode metadata
     if node_type == "ai-chat" && metadata.is_some() {
         log::info!("🤖 Processing AIChatNode with enhanced metadata");
-        
+
         // Log metadata structure for debugging
         if let Some(ref meta) = metadata {
             log::info!("📊 AIChatNode metadata structure:");
-            log::info!("   Question: {}", meta.get("question").and_then(|v| v.as_str()).unwrap_or("N/A"));
-            log::info!("   Response: {}", meta.get("response").and_then(|v| v.as_str()).map(|s| format!("{}...", &s[..50.min(s.len())])).unwrap_or("N/A".to_string()));
-            log::info!("   Sources: {}", meta.get("node_sources").and_then(|v| v.as_array()).map(|arr| arr.len()).unwrap_or(0));
-            log::info!("   Confidence: {}", meta.get("overall_confidence").and_then(|v| v.as_f64()).unwrap_or(0.0));
+            log::info!(
+                "   Question: {}",
+                meta.get("question")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("N/A")
+            );
+            log::info!(
+                "   Response: {}",
+                meta.get("response")
+                    .and_then(|v| v.as_str())
+                    .map(|s| format!("{}...", &s[..50.min(s.len())]))
+                    .unwrap_or("N/A".to_string())
+            );
+            log::info!(
+                "   Sources: {}",
+                meta.get("node_sources")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.len())
+                    .unwrap_or(0)
+            );
+            log::info!(
+                "   Confidence: {}",
+                meta.get("overall_confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            );
         }
     }
 
     // Use core-logic upsert method when available, fallback to existing methods
     // TODO: Replace with actual upsert_node call when core-logic implements it
     log::info!("🚀 Using fallback implementation until core-logic provides upsert_node()");
-    
+
     // For now, use enhanced create_node_for_date_with_id which supports metadata
     match service
         .create_node_for_date_with_id(
@@ -893,13 +975,13 @@ async fn upsert_node(
     {
         Ok(_) => {
             log::info!("✅ Unified upsert completed successfully");
-            
+
             if node_type == "ai-chat" {
                 log::info!("🤖 AIChatNode created with simplified metadata structure");
                 log::info!("   📚 Vector embedding: Content only (title)");
                 log::info!("   📊 Metadata stored: Q&A conversation data");
             }
-            
+
             Ok(())
         }
         Err(e) => {
@@ -923,10 +1005,15 @@ async fn create_image_node(_state: State<'_, AppState>) -> Result<ImageData, Str
 
 #[tauri::command]
 async fn test_ai_inference() -> Result<String, String> {
-    log_command("test_ai_inference", "testing AI functionality with Ollama backend");
-    
+    log_command(
+        "test_ai_inference",
+        "testing AI functionality with Ollama backend",
+    );
+
     match test_onnx::test_onnx_inference().await {
-        Ok(()) => Ok("AI inference test completed successfully - Ollama backend working".to_string()),
+        Ok(()) => {
+            Ok("AI inference test completed successfully - Ollama backend working".to_string())
+        }
         Err(e) => Err(format!("AI inference test failed: {}", e)),
     }
 }

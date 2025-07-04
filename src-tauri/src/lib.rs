@@ -1,6 +1,5 @@
 mod error;
 mod logging;
-mod test_onnx;
 
 #[cfg(test)]
 mod tests;
@@ -108,7 +107,9 @@ async fn initialize_nodespace_service(
     );
 
     // Use non-blocking factory method that properly wires NLP engine to data store for embedding generation
-    let service = NodeSpaceService::create_with_background_init(db_path, Some(models_dir.to_str().unwrap()))
+    let models_dir_str = models_dir.to_str()
+        .ok_or_else(|| "Invalid models directory path".to_string())?;
+    let service = NodeSpaceService::create_with_background_init(db_path, Some(models_dir_str))
         .await
         .map_err(|e| format!("Failed to initialize NodeSpaceService: {}", e))?;
 
@@ -379,10 +380,6 @@ async fn get_nodes_for_date(
 ) -> Result<serde_json::Value, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
 
-    log::info!(
-        "🔍 DEBUG: get_nodes_for_date called with date: {}",
-        date_str
-    );
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -396,75 +393,34 @@ async fn get_nodes_for_date(
     let service = service_guard.as_ref().unwrap();
 
     // Use hierarchical API with fallback to flat nodes
-    log::info!("🚀 DEBUG: About to call service.get_hierarchical_nodes_for_date");
-
     match service.get_hierarchical_nodes_for_date(date).await {
         Ok(hierarchical_data) => {
-            log::info!("✅ DEBUG: get_hierarchical_nodes_for_date succeeded");
             log::info!(
                 "✅ Retrieved hierarchical data for date {} with {} children",
                 date_str,
                 hierarchical_data.children.len()
             );
 
-            // DEBUG: Log each child found
-            for (i, child) in hierarchical_data.children.iter().enumerate() {
-                log::info!(
-                    "  📝 Child {}: ID={}, content='{}'",
-                    i,
-                    child.node.id,
-                    child
-                        .node
-                        .content
-                        .as_str()
-                        .unwrap_or("N/A")
-                        .chars()
-                        .take(50)
-                        .collect::<String>()
-                );
-            }
-
             serde_json::to_value(hierarchical_data)
                 .map_err(|e| format!("Failed to serialize hierarchical data: {}", e))
         }
         Err(e) => {
-            log::warn!(
-                "⚠️ DEBUG: get_hierarchical_nodes_for_date failed with: {}",
-                e
-            );
             log::warn!(
                 "⚠️ Hierarchical API failed for date {}, falling back to flat nodes: {}",
                 date_str,
                 e
             );
 
-            log::info!("🚀 DEBUG: About to call fallback service.get_nodes_for_date");
             let nodes = service
                 .get_nodes_for_date(date)
                 .await
                 .map_err(|e| format!("Failed to get nodes for date (fallback): {}", e))?;
 
-            log::info!("✅ DEBUG: Fallback get_nodes_for_date succeeded");
             log::info!(
                 "✅ Fallback retrieved {} flat nodes for date {}",
                 nodes.len(),
                 date_str
             );
-
-            // DEBUG: Log each node found in fallback
-            for (i, node) in nodes.iter().enumerate() {
-                log::info!(
-                    "  📝 Fallback Node {}: ID={}, content='{}'",
-                    i,
-                    node.id,
-                    node.content
-                        .as_str()
-                        .unwrap_or("N/A")
-                        .chars()
-                        .take(50)
-                        .collect::<String>()
-                );
-            }
 
             serde_json::to_value(nodes)
                 .map_err(|e| format!("Failed to serialize fallback nodes: {}", e))
@@ -805,14 +761,6 @@ async fn create_node_for_date_with_id(
         ),
     );
 
-    log::info!("🔍 DEBUG: create_node_for_date_with_id called with:");
-    log::info!("  📝 Node ID: {}", node_id);
-    log::info!("  📅 Date: {}", date_str);
-    log::info!("  📄 Content: '{}'", content);
-    log::info!("  📏 Content length: {}", content.len());
-    log::info!("  👨‍👩‍👧‍👦 Parent ID: {:?}", parent_id);
-    log::info!("  🏷️ Node Type: {:?}", node_type);
-    log::info!("  🔗 Before Sibling ID: {:?}", before_sibling_id);
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -850,10 +798,6 @@ async fn create_node_for_date_with_id(
     let before_sibling_node_id = before_sibling_id.map(NodeId::from_string);
 
     // Use enhanced core-logic API with hierarchy support
-    log::info!(
-        "🚀 DEBUG: About to call service.create_node_for_date_with_id with enhanced parameters"
-    );
-
     let result = service
         .create_node_for_date_with_id(
             node_id_obj,            // node_id
@@ -868,7 +812,6 @@ async fn create_node_for_date_with_id(
 
     match result {
         Ok(_) => {
-            log::info!("✅ DEBUG: service.create_node_for_date_with_id succeeded");
             log::info!(
                 "✅ Created node with provided UUID {} for date {} using fire-and-forget pattern",
                 node_id,
@@ -878,7 +821,7 @@ async fn create_node_for_date_with_id(
         }
         Err(e) => {
             log::error!(
-                "❌ DEBUG: service.create_node_for_date_with_id failed with error: {}",
+                "❌ Failed to create node with provided ID: {}",
                 e
             );
             Err(format!("Failed to create node with provided ID: {}", e))
@@ -1048,20 +991,6 @@ async fn create_image_node(_state: State<'_, AppState>) -> Result<ImageData, Str
     Err("File dialog not yet implemented - waiting for Tauri API update".to_string())
 }
 
-#[tauri::command]
-async fn test_ai_inference() -> Result<String, String> {
-    log_command(
-        "test_ai_inference",
-        "testing AI functionality with Ollama backend",
-    );
-
-    match test_onnx::test_onnx_inference().await {
-        Ok(()) => {
-            Ok("AI inference test completed successfully - Ollama backend working".to_string())
-        }
-        Err(e) => Err(format!("AI inference test failed: {}", e)),
-    }
-}
 
 #[tauri::command]
 async fn process_dropped_files(
@@ -1312,8 +1241,7 @@ pub fn run() {
             // ADR-015: Multimodal file processing commands
             create_image_node,
             process_dropped_files,
-            multimodal_search,
-            test_ai_inference
+            multimodal_search
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

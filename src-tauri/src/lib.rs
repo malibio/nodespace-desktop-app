@@ -27,7 +27,7 @@ use nodespace_nlp_engine::LocalNLPEngine;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResponse {
     pub answer: String,
-    pub sources: Vec<Node>,
+    pub sources: Vec<SearchResult>,
     pub confidence: f64,
 }
 
@@ -107,16 +107,13 @@ async fn initialize_nodespace_service(
         models_dir.display()
     );
 
-    // Use factory method that properly wires NLP engine to data store for embedding generation
-    let service = NodeSpaceService::create_with_paths(db_path, Some(models_dir.to_str().unwrap()))
+    // Use non-blocking factory method that properly wires NLP engine to data store for embedding generation
+    let service = NodeSpaceService::create_with_background_init(db_path, Some(models_dir.to_str().unwrap()))
         .await
         .map_err(|e| format!("Failed to initialize NodeSpaceService: {}", e))?;
 
-    // Initialize the service
-    service
-        .initialize()
-        .await
-        .map_err(|e| format!("Failed to initialize service: {}", e))?;
+    // Service is created immediately, initialization happens in background
+    log::info!("🚀 NodeSpaceService created with background initialization");
 
     log_service_init("NodeSpaceService");
     log_service_ready("NodeSpaceService");
@@ -125,8 +122,9 @@ async fn initialize_nodespace_service(
     log::info!("   - Connected to LanceDB with data persistence");
     log::info!("   - Architecture: Desktop → NodeSpaceService → DataStore + NLPEngine");
     log::info!("   - Real AI integration and database persistence active");
+    log::info!("   - Background initialization: GPU models loading in parallel");
 
-    Ok(Arc::new(service))
+    Ok(service)
 }
 
 // Tauri commands for MVP functionality
@@ -165,7 +163,14 @@ async fn create_knowledge_node(
     let node_id = service
         .create_knowledge_node(&content, metadata_value)
         .await
-        .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
+        .map_err(|e| {
+            // Handle case where service is initializing in background
+            if e.to_string().contains("Service not ready: Initializing") {
+                "Service is initializing in background. Please try again in a moment.".to_string()
+            } else {
+                format!("Failed to create knowledge node: {}", e)
+            }
+        })?;
 
     log::info!(
         "✅ Created knowledge node {} with NodeSpaceService and database persistence",
@@ -236,11 +241,24 @@ async fn process_query(
         question
     );
 
-    // Use real ServiceContainer for RAG query processing
-    let query_response = service
-        .process_query(&question)
-        .await
-        .map_err(|e| format!("Failed to process query: {}", e))?;
+    // Use real ServiceContainer for RAG query processing with auto-retry
+    let query_response = match service.process_query(&question).await {
+        Ok(response) => response,
+        Err(e) if e.to_string().contains("Service not ready: Initializing") => {
+            // Auto-retry once after 2 seconds for better UX
+            log::info!("AI services still initializing, auto-retrying in 2 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            service.process_query(&question).await.map_err(|retry_e| {
+                if retry_e.to_string().contains("Service not ready: Initializing") {
+                    "AI services are still initializing. Please try again in a moment.".to_string()
+                } else {
+                    format!("Failed to process query: {}", retry_e)
+                }
+            })?
+        }
+        Err(e) => return Err(format!("Failed to process query: {}", e)),
+    };
 
     // Search for related nodes as sources using real database
     let search_results = service
@@ -248,12 +266,26 @@ async fn process_query(
         .await
         .unwrap_or_default();
 
-    let source_nodes: Vec<Node> = search_results.into_iter().map(|r| r.node).collect();
+    // Convert to SearchResult format preserving individual relevance scores
+    let source_results: Vec<SearchResult> = search_results.into_iter().map(|search_result| {
+        let snippet = if let Some(content_str) = search_result.node.content.as_str() {
+            let snippet_len = content_str.len().min(100);
+            format!("{}...", &content_str[..snippet_len])
+        } else {
+            "...".to_string()
+        };
 
-    // Convert to Tauri response format
+        SearchResult {
+            node: search_result.node,
+            score: search_result.score as f64,
+            snippet,
+        }
+    }).collect();
+
+    // Convert to Tauri response format - keeping individual scores
     let response = QueryResponse {
         answer: query_response.answer,
-        sources: source_nodes,
+        sources: source_results,
         confidence: query_response.confidence as f64,
     };
 
@@ -293,11 +325,24 @@ async fn semantic_search(
         limit
     );
 
-    // Use real ServiceContainer for semantic search
-    let search_results = service
-        .semantic_search(&query, limit)
-        .await
-        .map_err(|e| format!("Failed to perform semantic search: {}", e))?;
+    // Use real ServiceContainer for semantic search with auto-retry
+    let search_results = match service.semantic_search(&query, limit).await {
+        Ok(results) => results,
+        Err(e) if e.to_string().contains("Service not ready: Initializing") => {
+            // Auto-retry once after 2 seconds for better UX
+            log::info!("AI search services still initializing, auto-retrying in 2 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            service.semantic_search(&query, limit).await.map_err(|retry_e| {
+                if retry_e.to_string().contains("Service not ready: Initializing") {
+                    "AI search services are still initializing. Please try again in a moment.".to_string()
+                } else {
+                    format!("Failed to perform semantic search: {}", retry_e)
+                }
+            })?
+        }
+        Err(e) => return Err(format!("Failed to perform semantic search: {}", e)),
+    };
 
     // Convert to search results
     let results: Vec<SearchResult> = search_results

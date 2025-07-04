@@ -103,9 +103,15 @@ function App() {
       const actualGenerationTime = queryResponse.generation_time_ms || (endTime - startTime);
       
       console.log(`✅ RAG query processing completed in ${actualGenerationTime}ms`);
-      console.log(`📊 Confidence: ${queryResponse.confidence}`);
+      console.log(`📊 Overall Confidence: ${queryResponse.confidence}`);
       console.log(`📚 Found ${queryResponse.sources.length} source(s)`);
       console.log(`💬 AI Answer: "${queryResponse.answer.slice(0, 100)}..."`);
+      
+      // DEBUG: Log individual source scores to check if they're different
+      console.log(`🔍 Individual Source Scores:`);
+      queryResponse.sources.forEach((sourceResult, index) => {
+        console.log(`  Source ${index}: score=${sourceResult.score}, node_id=${sourceResult.node.id?.slice(0, 8)}`);
+      });
       
       // Prepare simplified metadata structure for storage
       const questionTimestamp = new Date().toISOString();

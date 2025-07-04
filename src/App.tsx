@@ -87,7 +87,11 @@ function App() {
       // Use enhanced process_query Tauri command for full RAG pipeline
       const queryResponse = await invoke<{
         answer: string;
-        sources: any[];
+        sources: Array<{
+          node: any;
+          score: number;
+          snippet: string;
+        }>;
         confidence: number;
         generation_time_ms?: number;
         overall_confidence?: number;
@@ -114,13 +118,13 @@ function App() {
         response_timestamp: responseTimestamp,
         generation_time_ms: actualGenerationTime,
         overall_confidence: queryResponse.overall_confidence || queryResponse.confidence,
-        node_sources: queryResponse.sources.map(source => ({
-          node_id: source.id?.toString() || 'unknown',
-          content: source.content?.toString() || 'No content available',
-          retrieval_score: source.score || 0,
-          context_tokens: Math.ceil((source.content?.toString().length || 0) / 4), // Approximate
-          node_type: source.node_type || 'text',
-          last_modified: source.last_modified || new Date().toISOString()
+        node_sources: queryResponse.sources.map(sourceResult => ({
+          node_id: sourceResult.node.id?.toString() || 'unknown',
+          content: sourceResult.node.content?.toString() || 'No content available',
+          retrieval_score: sourceResult.score, // Use individual relevance score from search
+          context_tokens: Math.ceil((sourceResult.node.content?.toString().length || 0) / 4), // Approximate
+          node_type: sourceResult.node.node_type || 'text',
+          last_modified: sourceResult.node.last_modified || new Date().toISOString()
         })),
         error: null
       };
@@ -250,7 +254,11 @@ function App() {
         // Use existing process_query Tauri command which implements RAG pipeline
         const queryResponse = await invoke<{
           answer: string;
-          sources: any[];
+          sources: Array<{
+            node: any;
+            score: number;
+            snippet: string;
+          }>;
           confidence: number;
         }>('process_query', {
           question: question

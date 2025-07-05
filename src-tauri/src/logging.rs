@@ -35,6 +35,13 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
         .level_for("lance_index", log::LevelFilter::Warn)
         .level_for("lance_table", log::LevelFilter::Warn)
         .level_for("lance_file", log::LevelFilter::Warn)
+        .level_for("lance_linalg", log::LevelFilter::Warn)
+        .level_for("lance::dataset", log::LevelFilter::Error)
+        .level_for("lance::dataset::scanner", log::LevelFilter::Error)
+        // Suppress sqlparser debug noise
+        .level_for("sqlparser", log::LevelFilter::Warn)
+        .level_for("sqlparser::parser", log::LevelFilter::Warn)
+        .level_for("sqlparser::dialect", log::LevelFilter::Warn)
         // Also reduce DataFusion verbosity (used by LanceDB)
         .level_for("datafusion", log::LevelFilter::Warn)
         .level_for("datafusion_common", log::LevelFilter::Warn)

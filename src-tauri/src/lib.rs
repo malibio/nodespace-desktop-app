@@ -26,7 +26,7 @@ use nodespace_nlp_engine::LocalNLPEngine;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResponse {
     pub answer: String,
-    pub sources: Vec<Node>,
+    pub sources: Vec<SearchResult>,
     pub confidence: f64,
 }
 
@@ -91,22 +91,30 @@ async fn initialize_nodespace_service(
 ) -> Result<Arc<NodeSpaceService<LanceDataStore, LocalNLPEngine>>, String> {
     log::info!("🚀 Initializing NodeSpaceService with dependency injection");
 
-    // Initialize data store
-    let data_store = LanceDataStore::new("/Users/malibio/nodespace/data/lance_db")
+    // Database and model paths
+    let db_path = "/Users/malibio/nodespace/data/lance_db";
+    let models_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent() // /Users/malibio/nodespace/nodespace-desktop-app
+        .unwrap()
+        .parent() // /Users/malibio/nodespace
+        .unwrap()
+        .join("models");
+
+    log::info!("🔍 Initializing service with database: {}", db_path);
+    log::info!(
+        "🔍 Initializing service with models: {}",
+        models_dir.display()
+    );
+
+    // Use non-blocking factory method that properly wires NLP engine to data store for embedding generation
+    let models_dir_str = models_dir.to_str()
+        .ok_or_else(|| "Invalid models directory path".to_string())?;
+    let service = NodeSpaceService::create_with_background_init(db_path, Some(models_dir_str))
         .await
-        .map_err(|e| format!("Failed to initialize data store: {}", e))?;
+        .map_err(|e| format!("Failed to initialize NodeSpaceService: {}", e))?;
 
-    // Initialize NLP engine
-    let nlp_engine = LocalNLPEngine::new();
-
-    // Create service with injected dependencies
-    let service = NodeSpaceService::new(data_store, nlp_engine);
-
-    // Initialize the service
-    service
-        .initialize()
-        .await
-        .map_err(|e| format!("Failed to initialize service: {}", e))?;
+    // Service is created immediately, initialization happens in background
+    log::info!("🚀 NodeSpaceService created with background initialization");
 
     log_service_init("NodeSpaceService");
     log_service_ready("NodeSpaceService");
@@ -115,8 +123,9 @@ async fn initialize_nodespace_service(
     log::info!("   - Connected to LanceDB with data persistence");
     log::info!("   - Architecture: Desktop → NodeSpaceService → DataStore + NLPEngine");
     log::info!("   - Real AI integration and database persistence active");
+    log::info!("   - Background initialization: GPU models loading in parallel");
 
-    Ok(Arc::new(service))
+    Ok(service)
 }
 
 // Tauri commands for MVP functionality
@@ -155,7 +164,14 @@ async fn create_knowledge_node(
     let node_id = service
         .create_knowledge_node(&content, metadata_value)
         .await
-        .map_err(|e| format!("Failed to create knowledge node: {}", e))?;
+        .map_err(|e| {
+            // Handle case where service is initializing in background
+            if e.to_string().contains("Service not ready: Initializing") {
+                "Service is initializing in background. Please try again in a moment.".to_string()
+            } else {
+                format!("Failed to create knowledge node: {}", e)
+            }
+        })?;
 
     log::info!(
         "✅ Created knowledge node {} with NodeSpaceService and database persistence",
@@ -226,11 +242,24 @@ async fn process_query(
         question
     );
 
-    // Use real ServiceContainer for RAG query processing
-    let query_response = service
-        .process_query(&question)
-        .await
-        .map_err(|e| format!("Failed to process query: {}", e))?;
+    // Use real ServiceContainer for RAG query processing with auto-retry
+    let query_response = match service.process_query(&question).await {
+        Ok(response) => response,
+        Err(e) if e.to_string().contains("Service not ready: Initializing") => {
+            // Auto-retry once after 2 seconds for better UX
+            log::info!("AI services still initializing, auto-retrying in 2 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            service.process_query(&question).await.map_err(|retry_e| {
+                if retry_e.to_string().contains("Service not ready: Initializing") {
+                    "AI services are still initializing. Please try again in a moment.".to_string()
+                } else {
+                    format!("Failed to process query: {}", retry_e)
+                }
+            })?
+        }
+        Err(e) => return Err(format!("Failed to process query: {}", e)),
+    };
 
     // Search for related nodes as sources using real database
     let search_results = service
@@ -238,12 +267,26 @@ async fn process_query(
         .await
         .unwrap_or_default();
 
-    let source_nodes: Vec<Node> = search_results.into_iter().map(|r| r.node).collect();
+    // Convert to SearchResult format preserving individual relevance scores
+    let source_results: Vec<SearchResult> = search_results.into_iter().map(|search_result| {
+        let snippet = if let Some(content_str) = search_result.node.content.as_str() {
+            let snippet_len = content_str.len().min(100);
+            format!("{}...", &content_str[..snippet_len])
+        } else {
+            "...".to_string()
+        };
 
-    // Convert to Tauri response format
+        SearchResult {
+            node: search_result.node,
+            score: search_result.score as f64,
+            snippet,
+        }
+    }).collect();
+
+    // Convert to Tauri response format - keeping individual scores
     let response = QueryResponse {
         answer: query_response.answer,
-        sources: source_nodes,
+        sources: source_results,
         confidence: query_response.confidence as f64,
     };
 
@@ -283,11 +326,24 @@ async fn semantic_search(
         limit
     );
 
-    // Use real ServiceContainer for semantic search
-    let search_results = service
-        .semantic_search(&query, limit)
-        .await
-        .map_err(|e| format!("Failed to perform semantic search: {}", e))?;
+    // Use real ServiceContainer for semantic search with auto-retry
+    let search_results = match service.semantic_search(&query, limit).await {
+        Ok(results) => results,
+        Err(e) if e.to_string().contains("Service not ready: Initializing") => {
+            // Auto-retry once after 2 seconds for better UX
+            log::info!("AI search services still initializing, auto-retrying in 2 seconds...");
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            
+            service.semantic_search(&query, limit).await.map_err(|retry_e| {
+                if retry_e.to_string().contains("Service not ready: Initializing") {
+                    "AI search services are still initializing. Please try again in a moment.".to_string()
+                } else {
+                    format!("Failed to perform semantic search: {}", retry_e)
+                }
+            })?
+        }
+        Err(e) => return Err(format!("Failed to perform semantic search: {}", e)),
+    };
 
     // Convert to search results
     let results: Vec<SearchResult> = search_results
@@ -323,6 +379,7 @@ async fn get_nodes_for_date(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     log_command("get_nodes_for_date", &format!("date: {}", date_str));
+
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -407,14 +464,35 @@ async fn update_node_content(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn update_node_structure(
     operation: String,
     node_id: String,
+    parent_id: Option<String>,
+    former_parent_id: Option<String>,
+    hierarchy_level: u32,
+    node_content: String,
+    node_type: String,
+    timestamp: String,
+    date_str: String,
+    before_sibling_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     log_command(
         "update_node_structure",
-        &format!("operation: {}, node_id: {}", operation, node_id),
+        &format!(
+            "operation: {}, node_id: {}, parent_id: {:?}, former_parent_id: {:?}, hierarchy_level: {}, content: '{}', type: {}, timestamp: {}, date_str: {}, before_sibling_id: {:?}",
+            operation,
+            node_id,
+            parent_id,
+            former_parent_id,
+            hierarchy_level,
+            node_content.chars().take(30).collect::<String>(),
+            node_type,
+            timestamp,
+            date_str,
+            before_sibling_id
+        ),
     );
 
     // Get or initialize the ServiceContainer
@@ -425,19 +503,192 @@ async fn update_node_structure(
     let _service = service_guard.as_ref().unwrap();
 
     // Immediately save structure changes (parent/child relationships)
-    let _node_id_obj = NodeId::from_string(node_id.clone());
+    let node_id_obj = NodeId::from_string(node_id.clone());
 
-    // For now, log the structure change - real implementation would update relationships
     log::info!(
-        "🔄 Structure change '{}' for node {} - saving to database",
+        "🔄 Structure change '{}' for node {} - parent_id: {:?}, before_sibling_id: {:?}",
         operation,
-        node_id
+        node_id,
+        parent_id,
+        before_sibling_id
     );
 
-    // TODO: Implement specific relationship updates based on operation type
-    // Examples: "indent", "outdent", "move_up", "move_down", etc.
-    // This will require additional methods in core-logic ServiceContainer interface
+    // Convert before_sibling_id to NodeId if provided
+    let before_sibling_node_id = before_sibling_id
+        .as_ref()
+        .map(|id| NodeId::from_string(id.clone()));
 
+    // Implement specific relationship updates based on operation type
+    match operation.as_str() {
+        "indent" => {
+            // Convert parent_id string to NodeId if provided
+            let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
+
+            // Set the new parent relationship
+            _service
+                .set_node_parent(&node_id_obj, parent_node_id.as_ref())
+                .await
+                .map_err(|e| format!("Failed to indent node: {}", e))?;
+
+            // Update sibling positioning if before_sibling_id is provided
+            if before_sibling_node_id.is_some() {
+                _service
+                    .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for indent operation: {}", e)
+                    })?;
+            }
+
+            log::info!(
+                "✅ Successfully indented node {} under parent {:?}, before sibling {:?}",
+                node_id,
+                parent_id,
+                before_sibling_id
+            );
+        }
+        "outdent" => {
+            // Remove parent relationship (move to root level under date node)
+            _service
+                .set_node_parent(&node_id_obj, None)
+                .await
+                .map_err(|e| format!("Failed to outdent node: {}", e))?;
+
+            log::info!("✅ Successfully outdented node {} to root level", node_id);
+        }
+        "move" | "reorder" | "position" => {
+            // Handle sibling positioning and parent changes
+            let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
+
+            // Update parent relationship
+            _service
+                .set_node_parent(&node_id_obj, parent_node_id.as_ref())
+                .await
+                .map_err(|e| format!("Failed to update parent for move operation: {}", e))?;
+
+            // Update sibling positioning if before_sibling_id is provided
+            if before_sibling_node_id.is_some() {
+                _service
+                    .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for move operation: {}", e)
+                    })?;
+            }
+
+            log::info!(
+                "✅ Successfully moved node {} to parent {:?}, before sibling {:?}",
+                node_id,
+                parent_id,
+                before_sibling_id
+            );
+        }
+        "create_child" | "add_child" => {
+            // Handle child creation structure changes (if Core-UI sends these)
+            let parent_node_id = parent_id.as_ref().map(|id| NodeId::from_string(id.clone()));
+
+            _service
+                .set_node_parent(&node_id_obj, parent_node_id.as_ref())
+                .await
+                .map_err(|e| format!("Failed to set parent for child creation: {}", e))?;
+
+            // Update sibling positioning if before_sibling_id is provided
+            if before_sibling_node_id.is_some() {
+                _service
+                    .update_sibling_order(&node_id_obj, None, before_sibling_node_id.as_ref())
+                    .await
+                    .map_err(|e| {
+                        format!("Failed to update sibling order for child creation: {}", e)
+                    })?;
+            }
+
+            log::info!(
+                "✅ Successfully set parent for child creation: node {} under parent {:?}, before sibling {:?}",
+                node_id,
+                parent_id,
+                before_sibling_id
+            );
+        }
+        _ => {
+            log::warn!(
+                "🔄 Unhandled structure operation: '{}' for node {}",
+                operation,
+                node_id
+            );
+            log::warn!("   Available operations: indent, outdent, move, reorder, position, create_child, add_child");
+            log::warn!("   If this is a valid operation, please add it to the match statement");
+
+            // Still try to handle basic parent relationship update as fallback
+            if let Some(parent_id) = parent_id.as_ref() {
+                let parent_node_id = NodeId::from_string(parent_id.clone());
+                match _service
+                    .set_node_parent(&node_id_obj, Some(&parent_node_id))
+                    .await
+                {
+                    Ok(_) => {
+                        log::info!("✅ Fallback: Updated parent relationship for unknown operation")
+                    }
+                    Err(e) => log::error!("❌ Fallback failed: {}", e),
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_node(
+    node_id: String,
+    deletion_context: serde_json::Value,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log_command(
+        "delete_node",
+        &format!("node_id: {}, context: {}", node_id, deletion_context),
+    );
+
+    // Get or initialize the ServiceContainer
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    let node_id_obj = NodeId::from_string(node_id.clone());
+
+    log::info!(
+        "🗑️ Deleting node {} with context: {}",
+        node_id,
+        deletion_context
+    );
+
+    // Parse deletion context from Core-UI
+    let children_ids: Vec<NodeId> = deletion_context
+        .get("childrenIds")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| NodeId::from_string(s.to_string()))
+        .collect();
+
+    let children_transferred_to = deletion_context
+        .get("childrenTransferredTo")
+        .and_then(|v| v.as_str())
+        .map(|s| NodeId::from_string(s.to_string()));
+
+    // Call the lean deletion method from core-logic
+    service
+        .delete_node_with_children_transfer(
+            &node_id_obj,
+            children_ids,
+            children_transferred_to.as_ref(),
+        )
+        .await
+        .map_err(|e| format!("Failed to delete node: {}", e))?;
+
+    log::info!("✅ Successfully deleted node {}", node_id);
     Ok(())
 }
 
@@ -492,17 +743,24 @@ async fn create_node_for_date_with_id(
     node_id: String,
     date_str: String,
     content: String,
+    parent_id: Option<String>,
+    node_type: Option<String>,
+    before_sibling_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     log_command(
         "create_node_for_date_with_id",
         &format!(
-            "node_id: {}, date: {}, content_len: {}",
+            "node_id: {}, date: {}, content_len: {}, parent_id: {:?}, node_type: {:?}, before_sibling_id: {:?}",
             node_id,
             date_str,
-            content.len()
+            content.len(),
+            parent_id,
+            node_type,
+            before_sibling_id
         ),
     );
+
 
     // Parse the date string
     let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
@@ -525,24 +783,200 @@ async fn create_node_for_date_with_id(
         content.chars().take(50).collect::<String>()
     );
 
-    // Use proper fire-and-forget creation from core-logic
-    service
-        .create_node_for_date_with_id(node_id_obj, date, &content, NodeType::Text, None)
-        .await
-        .map_err(|e| format!("Failed to create node with provided ID: {}", e))?;
+    // Convert parent_id string to NodeId if provided
+    let parent_node_id = parent_id.map(NodeId::from_string);
 
-    log::info!(
-        "✅ Created node with provided UUID {} for date {} using fire-and-forget pattern",
-        node_id,
-        date_str
-    );
-    Ok(())
+    // Convert node_type string to NodeType enum (using data-store variants)
+    let node_type_enum = match node_type.as_deref() {
+        Some("task") => NodeType::Task,
+        Some("image") => NodeType::Image,
+        Some("date") => NodeType::Date,
+        _ => NodeType::Text, // Default to Text (only 4 variants available)
+    };
+
+    // Convert before_sibling_id string to NodeId if provided
+    let before_sibling_node_id = before_sibling_id.map(NodeId::from_string);
+
+    // Use enhanced core-logic API with hierarchy support
+    let result = service
+        .create_node_for_date_with_id(
+            node_id_obj,            // node_id
+            date,                   // date
+            &content,               // content
+            node_type_enum,         // node_type
+            None,                   // metadata (not used for text/date nodes)
+            parent_node_id,         // parent_id
+            before_sibling_node_id, // before_sibling_id
+        )
+        .await;
+
+    match result {
+        Ok(_) => {
+            log::info!(
+                "✅ Created node with provided UUID {} for date {} using fire-and-forget pattern",
+                node_id,
+                date_str
+            );
+            Ok(())
+        }
+        Err(e) => {
+            log::error!(
+                "❌ Failed to create node with provided ID: {}",
+                e
+            );
+            Err(format!("Failed to create node with provided ID: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
 async fn get_today_date() -> Result<String, String> {
     let today = chrono::Utc::now().date_naive();
     Ok(today.format("%Y-%m-%d").to_string())
+}
+
+// Unified node management command for single callback architecture
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn upsert_node(
+    node_id: String,
+    date_str: String,
+    content: String,
+    parent_id: Option<String>,
+    before_sibling_id: Option<String>,
+    node_type: String,
+    metadata: Option<serde_json::Value>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    log_command(
+        "upsert_node",
+        &format!(
+            "id: {}, date: {}, content_len: {}, parent: {:?}, before_sibling: {:?}, type: {}, has_metadata: {}",
+            &node_id[0..8.min(node_id.len())],
+            date_str,
+            content.len(),
+            parent_id.as_ref().map(|id| &id[0..8.min(id.len())]),
+            before_sibling_id.as_ref().map(|id| &id[0..8.min(id.len())]),
+            node_type,
+            metadata.is_some()
+        ),
+    );
+
+    log::info!("🔄 UNIFIED UPSERT: Processing node operation");
+    log::info!("   📝 Node ID: {}", node_id);
+    log::info!("   📅 Date: {}", date_str);
+    log::info!(
+        "   📄 Content: '{}'",
+        content.chars().take(50).collect::<String>()
+    );
+    log::info!("   🏷️ Type: {}", node_type);
+    log::info!("   👨‍👩‍👧‍👦 Parent: {:?}", parent_id);
+    log::info!("   🔗 Before Sibling: {:?}", before_sibling_id);
+    log::info!(
+        "   📊 Metadata: {}",
+        if metadata.is_some() {
+            "present"
+        } else {
+            "none"
+        }
+    );
+
+    // Parse the date string
+    let date = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid date format: {}. Expected YYYY-MM-DD", e))?;
+
+    // Convert string to NodeId
+    let node_id_obj = NodeId::from_string(node_id.clone());
+
+    // Get or initialize the NodeSpaceService
+    let mut service_guard = state.nodespace_service.lock().await;
+    if service_guard.is_none() {
+        *service_guard = Some(initialize_nodespace_service().await?);
+    }
+    let service = service_guard.as_ref().unwrap();
+
+    // Convert node_type string to NodeType enum
+    let node_type_enum = match node_type.as_str() {
+        "task" => NodeType::Task,
+        "image" => NodeType::Image,
+        "date" => NodeType::Date,
+        "ai-chat" => NodeType::Text, // Use Text type for now until NodeType::AIChat is available
+        _ => NodeType::Text,
+    };
+
+    // Convert parent_id and before_sibling_id to NodeId objects
+    let parent_node_id = parent_id.map(NodeId::from_string);
+    let before_sibling_node_id = before_sibling_id.map(NodeId::from_string);
+
+    // Special handling for AIChatNode metadata
+    if node_type == "ai-chat" && metadata.is_some() {
+        log::info!("🤖 Processing AIChatNode with enhanced metadata");
+
+        // Log metadata structure for debugging
+        if let Some(ref meta) = metadata {
+            log::info!("📊 AIChatNode metadata structure:");
+            log::info!(
+                "   Question: {}",
+                meta.get("question")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("N/A")
+            );
+            log::info!(
+                "   Response: {}",
+                meta.get("response")
+                    .and_then(|v| v.as_str())
+                    .map(|s| format!("{}...", &s[..50.min(s.len())]))
+                    .unwrap_or("N/A".to_string())
+            );
+            log::info!(
+                "   Sources: {}",
+                meta.get("node_sources")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.len())
+                    .unwrap_or(0)
+            );
+            log::info!(
+                "   Confidence: {}",
+                meta.get("overall_confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            );
+        }
+    }
+
+    // Use core-logic upsert method when available, fallback to existing methods
+    // TODO: Replace with actual upsert_node call when core-logic implements it
+    log::info!("🚀 Using fallback implementation until core-logic provides upsert_node()");
+
+    // For now, use enhanced create_node_for_date_with_id which supports metadata
+    match service
+        .create_node_for_date_with_id(
+            node_id_obj,
+            date,
+            &content,
+            node_type_enum,
+            metadata, // Pass metadata directly
+            parent_node_id,
+            before_sibling_node_id,
+        )
+        .await
+    {
+        Ok(_) => {
+            log::info!("✅ Unified upsert completed successfully");
+
+            if node_type == "ai-chat" {
+                log::info!("🤖 AIChatNode created with simplified metadata structure");
+                log::info!("   📚 Vector embedding: Content only (title)");
+                log::info!("   📊 Metadata stored: Q&A conversation data");
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("❌ Unified upsert failed: {}", e);
+            Err(format!("Failed to upsert node: {}", e))
+        }
+    }
 }
 
 // ADR-015: Multimodal file processing commands for Core-UI integration
@@ -556,6 +990,7 @@ async fn create_image_node(_state: State<'_, AppState>) -> Result<ImageData, Str
     // For now, return an error until proper file dialog integration is implemented
     Err("File dialog not yet implemented - waiting for Tauri API update".to_string())
 }
+
 
 #[tauri::command]
 async fn process_dropped_files(
@@ -797,9 +1232,12 @@ pub fn run() {
             get_nodes_for_date,
             update_node_content,
             update_node_structure,
+            delete_node,
             create_node_for_date,
             create_node_for_date_with_id,
             get_today_date,
+            // Unified node management for single callback architecture
+            upsert_node,
             // ADR-015: Multimodal file processing commands
             create_image_node,
             process_dropped_files,

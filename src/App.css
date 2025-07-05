@@ -8,15 +8,19 @@ body,
 #root {
   margin: 0;
   padding: 0;
+  /* Global font size increase for better readability in desktop app */
+  font-size: 130%; /* Makes everything 30% larger, reduced from previous 150% */
 }
 
-/* App container layout */
+/* App container layout with scaling */
 .app-container {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   background-color: var(--ns-app-bg);
   color: var(--ns-app-text);
+  /* Increase overall scale for better touch/mouse targets */
+  zoom: 1.3; /* Additional 30% zoom for the entire interface, reduced from previous 1.5 */
 }
 
 .app-header {
@@ -365,5 +369,21 @@ body,
 
 .ns-dark-mode .ns-sequence-indicator {
   color: var(--ns-text-secondary);
+}
+
+/* Editor container and loading state */
+.editor-container {
+  flex: 1;
+  padding: 1rem 2rem;
+  overflow-y: auto;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: var(--ns-text-secondary);
+  font-style: italic;
 }
 

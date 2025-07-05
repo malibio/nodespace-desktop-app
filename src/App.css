@@ -308,7 +308,7 @@ body,
   color: #f9fafb;
 }
 
-/* NS-46: Sibling relationship visual indicators */
+/* Sibling relationship visual indicators */
 .ns-node-with-siblings {
   position: relative;
 }

@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::info;
 
 /// Initialize logging for the application
 pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
@@ -84,15 +84,6 @@ pub fn log_service_ready(service_name: &str) {
     info!("Service ready: {}", service_name);
 }
 
-/// Log service initialization failure
-#[allow(dead_code)]
-pub fn log_service_error(service_name: &str, error: &str) {
-    error!(
-        "Service initialization failed [{}]: {}",
-        service_name, error
-    );
-}
-
 /// Log Tauri command execution
 pub fn log_command(command_name: &str, params: &str) {
     info!(
@@ -106,14 +97,3 @@ pub fn log_shutdown() {
     info!("NodeSpace Desktop Application shutting down...");
 }
 
-/// Log errors with context
-#[allow(dead_code)]
-pub fn log_error_with_context(context: &str, error: &str) {
-    error!("Error in {}: {}", context, error);
-}
-
-/// Log warnings with context
-#[allow(dead_code)]
-pub fn log_warning_with_context(context: &str, warning: &str) {
-    warn!("Warning in {}: {}", context, warning);
-}

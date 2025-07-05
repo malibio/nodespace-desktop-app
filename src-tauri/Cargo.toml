@@ -41,12 +41,11 @@ tauri-plugin-fs = "2.0.0"
 tauri-plugin-dialog = "2.0.0"
 tauri-plugin-clipboard-manager = "2.0.0"
 
-# NodeSpace core services - clean dependency boundary (ADR-008)
+# NodeSpace core services
 nodespace-core-types = { path = "../../nodespace-core-types" }
-# Full features enabled - unified Candle stack resolves Metal compilation issues
 nodespace-core-logic = { path = "../../nodespace-core-logic" }
 nodespace-data-store = { path = "../../nodespace-data-store" }
 nodespace-nlp-engine = { path = "../../nodespace-nlp-engine", features = ["real-ml"] }
 
-# Force consistent ort version to resolve fastembed vs nlp-engine conflict
+# ONNX Runtime version consistency
 ort = "=2.0.0-rc.9"
